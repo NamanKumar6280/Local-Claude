@@ -72,11 +72,10 @@ jobs:
           
           print("Logs successfully downloaded and extracted to ./extracted_logs")
           EOF
-
+          
       - name: Run log_to_json.py Script
         run: |
-          # Pass your extracted logs directory to your script
-          python tools/log_to_json.py --input extracted_logs --output output.json
+          python tools/log_to_json.py extracted_logs --out-dir . --out-name output.json
 
       - name: Upload JSON Artifact
         uses: actions/upload-artifact@v4
