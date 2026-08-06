@@ -1,0 +1,65 @@
+name: 2. Compile and Send to Kaggle
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  compile-and-send:
+    runs-on: ubuntu-latest
+    outputs:
+      error_count: ${{ steps.parse.outputs.error_count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Compile project (batchmode, no build)
+        id: compile
+        continue-on-error: true
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: StandaloneLinux64
+          customParameters: -logFile /github/workspace/Logs/compile.log
+
+      - name: Generate structured error/warning report
+        id: parse
+        if: always()
+        run: |
+          python3 tools/log_to_json.py \
+            --log "Logs/compile.log" \
+            --run-number "${{ github.run_number }}" \
+            --out-dir "BuildReports"
+          
+          ERR_COUNT=$(jq '.errorCount' BuildReports/CompilerErrors.json)
+          echo "error_count=$ERR_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Package UnityProject.zip
+        if: always()
+        run: |
+          mkdir -p BuildReports
+          zip -r BuildReports/UnityProject.zip . \
+            -x "Library/*" ".git/*" "Temp/*" "obj/*" "Logs/*" "BuildReports/*" \
+            -x "build/*" "*.sqlite3" ".ci/*"
+
+      - name: Send Payload to Kaggle ngrok API
+        if: always()
+        env:
+          KAGGLE_NGROK_URL: ${{ secrets.KAGGLE_NGROK_URL }}
+          KAGGLE_API_KEY: ${{ secrets.KAGGLE_API_KEY }}
+        run: |
+          echo "Sending project zip and error report to Kaggle FastAPI server..."
+          curl -X POST "${{ secrets.KAGGLE_NGROK_URL }}/repair" \
+            -H "Authorization: Bearer ${{ secrets.KAGGLE_API_KEY }}" \
+            -F "errors=@BuildReports/CompilerErrors.json" \
+            -F "project=@BuildReports/UnityProject.zip" \
+            --output repaired_payload.zip
+
+          echo "Unpacking fixed files from model..."
+          unzip -o repaired_payload.zip -d .
