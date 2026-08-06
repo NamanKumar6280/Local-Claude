@@ -29,6 +29,7 @@ jobs:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
+          projectPath: HorrorGame_Unity
           targetPlatform: StandaloneLinux64
           customParameters: -logFile /github/workspace/Logs/compile.log
 
@@ -125,6 +126,7 @@ jobs:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
+          projectPath: HorrorGame_Unity
           targetPlatform: StandaloneLinux64
           customParameters: -logFile /github/workspace/Logs/compile_after.log
 
