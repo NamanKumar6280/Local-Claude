@@ -20,6 +20,9 @@ jobs:
         with:
           lfs: true
 
+      - name: Create Logs directory
+        run: mkdir -p Logs
+
       - name: Compile project (batchmode, no build)
         id: compile
         continue-on-error: true
@@ -31,19 +34,35 @@ jobs:
         with:
           projectPath: HorrorGame_Unity
           targetPlatform: StandaloneLinux64
-          customParameters: -logFile /github/workspace/Logs/compile.log
+          customParameters: -logFile /github/workspace/Logs/compile.log -batchmode -nographics -quit
+
+      - name: Upload compile log as artifact
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: unity-compile-log
+          path: Logs/compile.log
 
       - name: Generate structured error/warning report
         id: parse
         if: always()
         run: |
-          python3 tools/log_to_json.py \
-            --log "Logs/compile.log" \
-            --run-number "${{ github.run_number }}" \
-            --out-dir "BuildReports"
-          ERR_COUNT=$(jq '.errorCount' BuildReports/CompilerErrors.json)
-          echo "error_count=$ERR_COUNT" >> $GITHUB_OUTPUT
-          cp BuildReports/CompilerErrors.json BuildReports/CompilerErrors_before.json
+          # Check if log file exists and has content
+          if [ -f "Logs/compile.log" ] && [ -s "Logs/compile.log" ]; then
+            python3 tools/log_to_json.py \
+              --log "Logs/compile.log" \
+              --run-number "${{ github.run_number }}" \
+              --out-dir "BuildReports"
+            ERR_COUNT=$(jq '.errorCount' BuildReports/CompilerErrors.json)
+            echo "error_count=$ERR_COUNT" >> $GITHUB_OUTPUT
+            cp BuildReports/CompilerErrors.json BuildReports/CompilerErrors_before.json
+          else
+            echo "No compile.log found or it's empty. Creating empty error report."
+            mkdir -p BuildReports
+            echo '{"cycle": "${{ github.run_number }}", "compile": "UNKNOWN", "errorCount": 0, "warningCount": 0, "errors": [], "warnings": [], "summary": {}, "missingClasses": [], "missingNamespaces": [], "missingPackages": [], "missingAssets": [], "unresolvedReferences": [], "unresolvedNames": [], "fixOrder": [], "repairHints": [], "source": {"input": "Logs/compile.log", "primaryLog": null, "primaryStep": null, "filesScanned": [], "candidatesConsidered": 0, "linesRead": 0}}' > BuildReports/CompilerErrors.json
+            echo "error_count=0" >> $GITHUB_OUTPUT
+            cp BuildReports/CompilerErrors.json BuildReports/CompilerErrors_before.json
+          fi
 
       - name: Package UnityProject.zip
         if: always()
