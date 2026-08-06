@@ -1,0 +1,93 @@
+name: 1. Generate Project From Docs
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'spec_docs.zip'   # fires whenever you replace this one file
+
+permissions:
+  contents: write
+
+jobs:
+  generate-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # PAT, not the default GITHUB_TOKEN -- required so the commit this job makes later
+          # actually triggers "2. Compile, Repair, Verify, and Learn" via its own push trigger.
+          # Pushes made with the default token don't trigger other workflows (GitHub's built-in
+          # anti-loop protection).
+          token: ${{ secrets.REPO_PAT }}
+
+      - name: Request generation
+        id: request
+        env:
+          NGROK_URL: ${{ secrets.NGROK_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+        run: |
+          RESPONSE=$(curl -s -X POST "${NGROK_URL}/generate" \
+            -H "Authorization: Bearer ${API_KEY}" \
+            -F "docs=@spec_docs.zip")
+          echo "$RESPONSE"
+          JOB_ID=$(echo "$RESPONSE" | jq -r '.job_id')
+          if [ "$JOB_ID" == "null" ] || [ -z "$JOB_ID" ]; then
+            echo "Failed to start a generation job -- response above."
+            exit 1
+          fi
+          echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Poll until generation finishes
+        env:
+          NGROK_URL: ${{ secrets.NGROK_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          for i in $(seq 1 100); do
+            STATUS=$(curl -s "${NGROK_URL}/status/${JOB_ID}" -H "Authorization: Bearer ${API_KEY}")
+            STATE=$(echo "$STATUS" | jq -r '.state')
+            echo "[poll $i] state=$STATE"
+            if [ "$STATE" == "done" ]; then
+              exit 0
+            elif [ "$STATE" == "error" ]; then
+              echo "$STATUS"
+              exit 1
+            fi
+            sleep 60
+          done
+          echo "Timed out waiting for generation."
+          exit 1
+
+      - name: Download and merge into repo
+        env:
+          NGROK_URL: ${{ secrets.NGROK_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+        run: |
+          curl -s "${NGROK_URL}/result/${JOB_ID}" -H "Authorization: Bearer ${API_KEY}" \
+            --output generated_project.zip
+          mkdir -p _generated_tmp
+          unzip -o generated_project.zip -d _generated_tmp
+          # mkdir -p means these folders don't need to already exist in the repo -- first run
+          # creates them automatically, nothing to set up by hand beforehand.
+          for d in Assets Packages ProjectSettings; do
+            if [ -d "_generated_tmp/$d" ]; then
+              mkdir -p "$d"
+              cp -rf "_generated_tmp/$d/." "$d/"
+            fi
+          done
+          rm -rf _generated_tmp generated_project.zip
+
+      - name: Commit and push (PAT -- triggers the compile workflow)
+        run: |
+          git config user.name "generator-bot"
+          git config user.email "generator-bot@users.noreply.github.com"
+          git add Assets Packages ProjectSettings
+          if ! git diff --cached --quiet; then
+            git commit -m "Generate project from spec_docs.zip (run ${{ github.run_number }})"
+            git push
+          else
+            echo "Nothing changed -- generation produced an identical project."
+          fi
