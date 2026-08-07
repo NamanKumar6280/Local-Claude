@@ -1,7 +1,8 @@
-name: 4. Package Project and Error Report
 on:
   workflow_run:
-    workflows: [ "2-compile" ]
+    workflows: ["2. Compile Only"] # Must match the 'name:' field in 2-compile.yml exactly
+    types:
+      - completed 
 
 permissions:
   actions: read       # needed to download the triggering run's logs via the API
