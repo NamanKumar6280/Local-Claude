@@ -1,13 +1,15 @@
 name: 1. Generate Project From Docs
+
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
     paths:
-      - 'spec_docs.zip'   # fires whenever you replace this one file
+      - '*Shelf*.zip'   # fires whenever you replace or add a file matching *Shelf*.zip
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   generate-and-push:
@@ -40,15 +42,32 @@ jobs:
           echo "Server never became reachable after 4 minutes -- is the notebook running?"
           exit 1
 
+      - name: Find the spec docs zip (any filename containing "Shelf")
+        id: findzip
+        run: |
+          echo "Repo root contents:"
+          ls -la
+          MATCH=$(find . -maxdepth 1 -iname "*Shelf*.zip" | head -n 1)
+          if [ -z "$MATCH" ]; then
+            echo "ERROR: no *Shelf*.zip file found at repo root -- see listing above."
+            echo "Check: is it at the repo root, not in a subfolder? Was it committed to the"
+            echo "'main' branch specifically? Does its name actually contain 'Shelf'?"
+            exit 1
+          fi
+          MATCH="${MATCH#./}"
+          echo "Found: $MATCH ($(stat -c%s "$MATCH") bytes)"
+          echo "zip_path=$MATCH" >> "$GITHUB_OUTPUT"
+
       - name: Request generation
         id: request
         env:
           NGROK_URL: ${{ secrets.NGROK_URL }}
           API_KEY: ${{ secrets.API_KEY }}
+          ZIP_PATH: ${{ steps.findzip.outputs.zip_path }}
         run: |
           RESPONSE=$(curl -s -X POST "${NGROK_URL}/generate" \
             -H "Authorization: Bearer ${API_KEY}" \
-            -F "docs=@spec_docs.zip")
+            -F "docs=@${ZIP_PATH}")
           echo "$RESPONSE"
           JOB_ID=$(echo "$RESPONSE" | jq -r '.job_id')
           if [ "$JOB_ID" == "null" ] || [ -z "$JOB_ID" ]; then
@@ -104,8 +123,71 @@ jobs:
           git config user.email "generator-bot@users.noreply.github.com"
           git add Assets Packages ProjectSettings
           if ! git diff --cached --quiet; then
-            git commit -m "Generate project from spec_docs.zip (run ${{ github.run_number }})"
+            git commit -m "Generate project from spec docs (run ${{ github.run_number }})"
             git push
           else
             echo "Nothing changed -- generation produced an identical project."
           fi
+
+      - name: Set up Python for Log Processing
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Log Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Fetch Previous Run Logs & Convert
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          python - <<'EOF'
+          import os
+          import requests
+          import zipfile
+          io = __import__('io')
+
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["REPO"]
+          
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json"
+          }
+
+          runs_url = f"https://api.github.com/repos/{repo}/actions/runs?per_page=2"
+          response = requests.get(runs_url, headers=headers)
+          response.raise_for_status()
+          runs = response.json().get("workflow_runs", [])
+
+          if len(runs) < 2:
+              print("No previous workflow run found.")
+              exit(0)
+
+          prev_run_id = runs[1]["id"]
+          print(f"Targeting previous run ID: {prev_run_id}")
+
+          logs_url = f"https://api.github.com/repos/{repo}/actions/runs/{prev_run_id}/logs"
+          logs_response = requests.get(logs_url, headers=headers, allow_redirects=True)
+          
+          if logs_response.status_code != 200:
+              print(f"Failed to fetch logs: {logs_response.status_code}")
+              exit(1)
+
+          os.makedirs("extracted_logs", exist_ok=True)
+          with zipfile.ZipFile(io.BytesIO(logs_response.content)) as z:
+              z.extractall("extracted_logs")
+          EOF
+
+      - name: Run log_to_json.py Script
+        run: |
+          python tools/log_to_json.py extracted_logs --out-dir . --out-name output.json
+
+      - name: Upload JSON Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: converted-workflow-logs-json
+          path: output.json
