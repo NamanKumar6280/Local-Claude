@@ -59,7 +59,7 @@ jobs:
           ZIP_PATH: ${{ steps.findzip.outputs.zip_path }}
         run: |
           echo "Sending POST request to ${NGROK_URL}/generate with file ${ZIP_PATH}"
-          RESPONSE=$(curl -s -i -X POST "${NGROK_URL}/generate" \
+          RESPONSE=$(curl -s -i -L -X POST "${NGROK_URL}/generate" \
             -H "Authorization: Bearer ${API_KEY}" \
             -F "docs=@${ZIP_PATH}")
           
@@ -67,9 +67,8 @@ jobs:
           echo "$RESPONSE"
           echo "--------------------------"
           
-          # Extract HTTP body (everything after the headers which are separated by \r\n\r\n or \n\n)
-          BODY=$(echo "$RESPONSE" | awk 'BEGIN {RS="\n\n"; ORS=""} {print $0}')
-          # Fallback if body extraction needs robust handling
+          # Extract HTTP body from the final response block
+          BODY=$(echo "$RESPONSE" | awk 'BEGIN {RS="\r\n\r\n|\n\n"} END {print}')
           if [ -z "$BODY" ]; then
             BODY="$RESPONSE"
           fi
