@@ -44,30 +44,17 @@ jobs:
             Library-android-
             Library-
 
-      # 5. Request Unity Activation License (Using stable v2 tag)
-      - name: Request Unity Activation License
-        uses: game-ci/unity-request-activation-file@v2
-        id: getLicense
-        with:
-          unity-version: 2022.3.2f1
-
-      # 6. Activate Unity using GitHub Secrets (Using stable v2 tag)
-      - name: Activate Unity
-        uses: game-ci/unity-activate@v2
-        with:
-          username: ${{ secrets.UNITY_EMAIL }}
-          password: ${{ secrets.UNITY_PASSWORD }}
-          activation-file: ${{ steps.getLicense.outputs.activation-file }}
-
-      # 7. Build Android APK (Using stable v4 tag)
+      # 5. Build Android APK directly using the stored UNITY_LICENSE secret
       - name: Build Unity Project (Android APK)
         uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         with:
           targetPlatform: Android
           androidAppBundle: false
           unityVersion: 2022.3.2f1
 
-      # 8. Upload APK Artifact
+      # 6. Upload APK Artifact
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
