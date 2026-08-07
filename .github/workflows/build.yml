@@ -20,13 +20,13 @@ jobs:
         with:
           lfs: true
 
-      # 2. Set up Python environment to run your generator script
+      # 2. Set up Python environment
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 3. Run your generator script to produce all project files
+      # 3. Run generator script to produce project files
       - name: Generate Unity Project Files
         run: |
           echo "Executing deepseek generator script..."
@@ -44,7 +44,7 @@ jobs:
             Library-android-
             Library-
 
-      # 5. Build Android APK with explicitly mapped environment credentials
+      # 5. Build Android APK
       - name: Build Unity Project (Android APK)
         uses: game-ci/unity-builder@v4
         env:
@@ -53,8 +53,8 @@ jobs:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         with:
           targetPlatform: Android
-          androidAppBundle: false
           unityVersion: 2022.3.2f1
+          buildName: CousinHorrorGame
           allowDirtyBuild: true
 
       # 6. Upload APK Artifact
@@ -62,4 +62,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: CousinHorrorGame-APK
-          path: build/Android/android.apk
+          path: build/Android/*.apk
