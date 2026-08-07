@@ -24,17 +24,22 @@ jobs:
         env:
           NGROK_URL: ${{ secrets.NGROK_URL }}
         run: |
-          echo "Polling ${NGROK_URL}/health every 10s (timeout after 500s)..."
+          echo "Polling ${NGROK_URL}/health every 10s until server is online (timeout after 500s)..."
+          ONLINE=false
           for i in $(seq 1 50); do
             if curl -sf "${NGROK_URL}/health" > /dev/null; then
               echo "Server is online and reachable!"
-              exit 0
+              ONLINE=true
+              break
             fi
             echo "[Attempt $i/50] Server not ready yet, retrying in 10s..."
             sleep 10
           done
-          echo "ERROR: Server failed to start or become reachable within 500 seconds."
-          exit 1
+          
+          if [ "$ONLINE" = false ]; then
+            echo "ERROR: Server failed to start or become reachable within 500 seconds."
+            exit 1
+          fi
 
       - name: Find the spec docs zip (any filename containing "Shelf")
         id: findzip
@@ -67,6 +72,7 @@ jobs:
           echo "--------------------------"
           
           HTTP_STATUS=$(echo "$RESPONSE" | grep -o 'HTTP/[0-9.]* [0-9]*' | tail -n1 | awk '{print $2}')
+          echo "Final HTTP Status Code: $HTTP_STATUS"
           
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "ERROR: Server returned HTTP status $HTTP_STATUS."
