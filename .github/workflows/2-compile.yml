@@ -1,0 +1,30 @@
+name: 3. Compile Only
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'dataset/**'
+
+jobs:
+  compile-and-send:   # job name matters -- it becomes the log subfolder name log_to_json.py
+                       # looks inside (see workflow 4, which expects "compile-and-send/...")
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Compile project (batchmode, no build)
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: StandaloneLinux64
+          customParameters: -logFile /github/workspace/Logs/compile.log
+        # Deliberately NOT continue-on-error -- if compile fails, we WANT this run to show as
+        # failed, since workflow 4 (triggered on completion, any conclusion) reads the outcome
+        # via github.event.workflow_run.conclusion to decide what to report.
