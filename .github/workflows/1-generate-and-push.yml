@@ -22,6 +22,24 @@ jobs:
           # anti-loop protection).
           token: ${{ secrets.REPO_PAT }}
 
+      - name: Wait for the Kaggle server to be reachable
+        env:
+          NGROK_URL: ${{ secrets.NGROK_URL }}
+        run: |
+          # The Kaggle notebook may still be starting up (model load alone takes a couple
+          # minutes) when this workflow fires -- wait up to 4 minutes on the unauthenticated
+          # /health endpoint before giving up, instead of failing on the very first attempt.
+          for i in $(seq 1 48); do
+            if curl -sf "${NGROK_URL}/health" > /dev/null; then
+              echo "Server is reachable."
+              exit 0
+            fi
+            echo "[wait $i/48] Server not reachable yet, retrying in 5s..."
+            sleep 5
+          done
+          echo "Server never became reachable after 4 minutes -- is the notebook running?"
+          exit 1
+
       - name: Request generation
         id: request
         env:

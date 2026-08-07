@@ -6,7 +6,7 @@ on:
 
 permissions:
   actions: read       # needed to download the triggering run's logs via the API
-  contents: read
+  contents: write      # needed to commit dataset/repair_history.jsonl at the end
 
 jobs:
   package-and-report:
@@ -100,7 +100,162 @@ jobs:
             BuildReports/CompilerErrors.json
 
       - name: Print summary
+        id: summary
         run: |
           echo "Compile run conclusion: ${{ github.event.workflow_run.conclusion }}"
-          echo "Error count: $(jq '.errorCount' BuildReports/CompilerErrors.json)"
+          ERR_COUNT=$(jq '.errorCount' BuildReports/CompilerErrors.json)
+          echo "Error count: $ERR_COUNT"
           echo "Warning count: $(jq '.warningCount' BuildReports/CompilerErrors.json)"
+          echo "error_count=$ERR_COUNT" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------------------
+      # Everything below only runs if there were actual compile errors -- this is what closes
+      # the loop: request a fix, verify it actually worked by recompiling, log what happened.
+      # -----------------------------------------------------------------------------------
+
+      - name: Wait for the Kaggle server to be reachable
+        if: steps.summary.outputs.error_count != '0'
+        env:
+          NGROK_URL: ${{ secrets.NGROK_URL }}
+        run: |
+          for i in $(seq 1 48); do
+            if curl -sf "${NGROK_URL}/health" > /dev/null; then
+              echo "Server is reachable."
+              exit 0
+            fi
+            echo "[wait $i/48] Server not reachable yet, retrying in 5s..."
+            sleep 5
+          done
+          echo "Server never became reachable after 4 minutes -- is the notebook running?"
+          exit 1
+
+      - name: Request repair
+        id: repair
+        if: steps.summary.outputs.error_count != '0'
+        env:
+          NGROK_URL: ${{ secrets.NGROK_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+        run: |
+          RESPONSE=$(curl -s -X POST "${NGROK_URL}/repair" \
+            -H "Authorization: Bearer ${API_KEY}" \
+            -F "errors=@BuildReports/CompilerErrors.json" \
+            -F "project=@BuildReports/UnityProject.zip")
+          echo "$RESPONSE"
+          JOB_ID=$(echo "$RESPONSE" | jq -r '.job_id')
+          if [ "$JOB_ID" == "null" ] || [ -z "$JOB_ID" ]; then
+            echo "Failed to start a repair job -- response above."
+            exit 1
+          fi
+          echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Poll until repair finishes
+        if: steps.repair.outcome == 'success'
+        env:
+          NGROK_URL: ${{ secrets.NGROK_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+          JOB_ID: ${{ steps.repair.outputs.job_id }}
+        run: |
+          for i in $(seq 1 60); do
+            STATUS=$(curl -s "${NGROK_URL}/status/${JOB_ID}" -H "Authorization: Bearer ${API_KEY}")
+            STATE=$(echo "$STATUS" | jq -r '.state')
+            echo "[poll $i] state=$STATE"
+            if [ "$STATE" == "done" ]; then
+              exit 0
+            elif [ "$STATE" == "error" ]; then
+              echo "$STATUS"
+              exit 1
+            fi
+            sleep 30
+          done
+          echo "Timed out waiting for repair."
+          exit 1
+
+      - name: Download repaired project
+        if: steps.repair.outcome == 'success'
+        env:
+          NGROK_URL: ${{ secrets.NGROK_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+          JOB_ID: ${{ steps.repair.outputs.job_id }}
+        run: |
+          curl -s "${NGROK_URL}/result/${JOB_ID}" -H "Authorization: Bearer ${API_KEY}" \
+            -D repair_response_headers.txt --output repaired_payload.zip
+          unzip -o repaired_payload.zip -d .
+          python3 - <<'PYEOF2'
+          import json, re
+          with open("repair_response_headers.txt") as f:
+              headers = f.read()
+          m = re.search(r"X-Repair-Summary:\s*(\{.*\})\r?\n", headers)
+          summary = json.loads(m.group(1)) if m else {"changed": []}
+          with open("touched_files.json", "w") as f:
+              json.dump(summary.get("changed", []), f)
+          print(f"Repair server touched {len(summary.get('changed', []))} file(s)")
+          PYEOF2
+
+      - name: Recompile repaired project (verification pass)
+        id: recompile
+        if: steps.repair.outcome == 'success'
+        continue-on-error: true
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: StandaloneLinux64
+          customParameters: -logFile /github/workspace/Logs/compile_after.log
+
+      - name: Fetch THIS run's logs for the after-report
+        if: steps.recompile.outcome == 'success' || steps.recompile.outcome == 'failure'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          # log_to_json.py reads Actions' own captured step logs, not the raw -logFile path --
+          # same mechanism as the "before" report above, but this run doesn't have a completed
+          # run ID to fetch from the API yet (it's still in progress), so we point it at the
+          # locally-written Unity log file directly for this "after" pass instead. If
+          # log_to_json.py strictly requires the Actions-log directory shape, wrap this file in
+          # a same-named subfolder to match (see the "before" step's extracted_logs/ layout).
+          mkdir -p extracted_logs_after/compile-and-send
+          cp Logs/compile_after.log "extracted_logs_after/compile-and-send/4_Compile project (batchmode, no build).txt"
+          python tools/log_to_json.py extracted_logs_after --out-dir BuildReports --out-name CompilerErrors_after.json
+          cat BuildReports/CompilerErrors_after.json
+
+      - name: Repackage repaired UnityProject.zip
+        if: steps.recompile.outcome == 'success' || steps.recompile.outcome == 'failure'
+        run: |
+          zip -r BuildReports/UnityProject_repaired.zip Assets Packages ProjectSettings \
+            -x "*/Library/*" "*/Temp/*" "*/obj/*"
+
+      - name: Diff before/after errors
+        if: steps.recompile.outcome == 'success' || steps.recompile.outcome == 'failure'
+        run: |
+          python3 tools/diff_errors.py \
+            --before BuildReports/CompilerErrors.json \
+            --after BuildReports/CompilerErrors_after.json \
+            --touched-files touched_files.json \
+            --out BuildReports/diff_result.json
+
+      - name: Append verified/unverified fixes to the mistakes dataset
+        if: steps.recompile.outcome == 'success' || steps.recompile.outcome == 'failure'
+        run: |
+          python3 tools/append_repair_history.py \
+            --diff-json BuildReports/diff_result.json \
+            --original-zip BuildReports/UnityProject.zip \
+            --repaired-zip BuildReports/UnityProject_repaired.zip \
+            --run-id-before "${{ github.event.workflow_run.run_number }}" \
+            --run-id-after "${{ github.run_number }}-after" \
+            --history-path dataset/repair_history.jsonl
+
+      - name: Commit updated repair history
+        if: steps.recompile.outcome == 'success' || steps.recompile.outcome == 'failure'
+        run: |
+          git config user.name "repair-bot"
+          git config user.email "repair-bot@users.noreply.github.com"
+          git add dataset/repair_history.jsonl
+          if ! git diff --cached --quiet; then
+            git commit -m "Log repair attempt from run ${{ github.run_number }} [skip ci]"
+            git push
+          else
+            echo "No new repair_history records to commit."
+          fi

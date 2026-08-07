@@ -40,18 +40,44 @@ kaggle_notebook/
 - `NGROK_URL`, `API_KEY` — only needed if you're using workflow 1 (legacy path) or wiring
   `/repair` calls into the compile workflow
 
-## Day-to-day use
+## Day-to-day use (now fully automatic after these 3 manual steps)
 
-1. Zip your docs → upload as `spec_docs.zip` at repo root (via GitHub's web UI, drag-and-drop).
-2. In the Kaggle notebook: run Steps 0/1/3/4 (env, deps, model+adapter, generation helper), then
-   **Step 10a** — pulls the docs, generates, pushes the result back via git. No ngrok needed for
-   this part.
-3. That push triggers `3-compile-only.yml` automatically, which triggers `4-package-and-report.yml`
-   on completion — download `UnityProject.zip` + `CompilerErrors.json` from that run's artifacts.
-4. For the repair loop (compile errors → auto-fix → verify → log), run the notebook's **Step 10b**
-   (the `/repair` job server + ngrok tunnel) and wire its URL into a workflow step that POSTs to
-   `/repair` — see the earlier `2-compile-and-repair.yml` design in this project's history for the
-   full pattern (recompile-and-diff loop), adapted to call the async `/repair` endpoint.
+1. **Upload `spec_docs.zip`** to the repo root (GitHub web UI, drag-and-drop).
+2. **Run the notebook** through Step 4, then **Step 10b** (the unified `/generate` + `/repair`
+   job server + ngrok tunnel). Copy the printed URL into `NGROK_URL`.
+3. **Trigger workflow 1** (`workflow_dispatch`, or just push a change to `spec_docs.zip` — that
+   alone triggers it).
+
+Everything after that is automatic, no further manual steps:
+
+```
+workflow 1 (generate) --push--> workflow 3 (compile) --on completion--> workflow 4
+                                                                            |
+                                                          errors? --yes--> auto-repair
+                                                                            |
+                                                          recompile to verify the fix actually worked
+                                                                            |
+                                                          log verified/unverified fixes to
+                                                          dataset/repair_history.jsonl and commit
+```
+
+Workflow 1 and workflow 4's repair step both **wait up to 4 minutes** for the Kaggle server to
+become reachable (polling `/health`) before giving up — covers the case where the workflow fires
+before the notebook has finished loading the model.
+
+**Watch it happen live:** open the `NGROK_URL` directly in a browser (no auth needed for this
+page) — it's a self-refreshing dashboard showing every generate/repair job, its state, and
+timing, updating every 5 seconds.
+
+## One honest uncertainty in this version
+
+The "after repair, recompile to verify" step in workflow 4 constructs a log folder by hand
+(`extracted_logs_after/compile-and-send/...`) to feed `log_to_json.py`, since that in-progress
+run doesn't have a completed run ID to fetch real Actions logs from via the API the normal way.
+This mimics the confirmed-working folder/filename pattern as closely as possible, but I still
+don't have `log_to_json.py`'s actual source (GitHub blocks automated access to it) — if this
+specific step errors out, that's the first place to look, and pasting the error back will let me
+fix it precisely instead of guessing again.
 
 ## What changed in this version
 
