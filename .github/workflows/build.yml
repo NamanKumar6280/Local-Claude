@@ -20,7 +20,7 @@ jobs:
         with:
           lfs: true
 
-      # 2. Set up Python environment to run the file generator script
+      # 2. Set up Python environment to run your generator script
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -36,7 +36,7 @@ jobs:
 
       # 4. Cache Library folder to speed up subsequent builds
       - name: Cache Library
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: Library
           key: Library-android-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
@@ -44,30 +44,30 @@ jobs:
             Library-android-
             Library-
 
-      # 5. Request Unity Activation License (Free Personal Tier)
+      # 5. Request Unity Activation License (Using stable v2 tag)
       - name: Request Unity Activation License
-        uses: game-ci/unity-request-activation-file@v3
+        uses: game-ci/unity-request-activation-file@v2
         id: getLicense
         with:
           unity-version: 2022.3.2f1
 
-      # 6. Activate Unity using GitHub Secrets
+      # 6. Activate Unity using GitHub Secrets (Using stable v2 tag)
       - name: Activate Unity
-        uses: game-ci/unity-activate@v3
+        uses: game-ci/unity-activate@v2
         with:
           username: ${{ secrets.UNITY_EMAIL }}
           password: ${{ secrets.UNITY_PASSWORD }}
           activation-file: ${{ steps.getLicense.outputs.activation-file }}
 
-      # 7. Build Android APK from the generated files
+      # 7. Build Android APK (Using stable v4 tag)
       - name: Build Unity Project (Android APK)
-        uses: game-ci/unity-builder@v3
+        uses: game-ci/unity-builder@v4
         with:
           targetPlatform: Android
           androidAppBundle: false
           unityVersion: 2022.3.2f1
 
-      # 8. Upload APK Artifact to GitHub
+      # 8. Upload APK Artifact
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
