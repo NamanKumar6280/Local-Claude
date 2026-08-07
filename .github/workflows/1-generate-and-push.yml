@@ -20,19 +20,42 @@ jobs:
         with:
           token: ${{ secrets.REPO_PAT }}
 
+      - name: Set up Python for Kaggle API
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Auto-start Kaggle Notebook
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          pip install kaggle
+          
+          # Navigate into the kaggle_notebook folder
+          cd kaggle_notebook
+          
+          echo "Pushing and triggering Kaggle notebook..."
+          # Ensure kernel-metadata.json is properly configured inside kaggle_notebook folder
+          kaggle kernels push
+          
+          echo "Kaggle notebook triggered successfully. Waiting 7-9 minutes for startup..."
+          # Sleep for 8 minutes (480 seconds) to let model load and ngrok establish
+          sleep 480
+
       - name: Wait for the Kaggle server to be reachable
         env:
           NGROK_URL: ${{ secrets.NGROK_URL }}
         run: |
-          for i in $(seq 1 48); do
+          for i in $(seq 1 30); do
             if curl -sf "${NGROK_URL}/health" > /dev/null; then
               echo "Server is reachable."
               exit 0
             fi
-            echo "[wait $i/48] Server not reachable yet, retrying in 5s..."
-            sleep 5
+            echo "[wait $i/30] Server not reachable yet, retrying in 10s..."
+            sleep 10
           done
-          echo "Server never became reachable after 4 minutes -- is the notebook running?"
+          echo "Server never became reachable after extended checks -- is ngrok configured properly in the notebook?"
           exit 1
 
       - name: Find the spec docs zip (any filename containing "Shelf")
@@ -43,8 +66,6 @@ jobs:
           MATCH=$(find . -maxdepth 1 -iname "*Shelf*.zip" | head -n 1)
           if [ -z "$MATCH" ]; then
             echo "ERROR: no *Shelf*.zip file found at repo root -- see listing above."
-            echo "Check: is it at the repo root, not in a subfolder? Was it committed to the"
-            echo "'main' branch specifically? Does its name actually contain 'Shelf'?"
             exit 1
           fi
           MATCH="${MATCH#./}"
@@ -67,17 +88,14 @@ jobs:
           echo "$RESPONSE"
           echo "--------------------------"
           
-          # Extract HTTP status code from the final response
           HTTP_STATUS=$(echo "$RESPONSE" | grep -o 'HTTP/[0-9.]* [0-9]*' | tail -n1 | awk '{print $2}')
           
           if [ "$HTTP_STATUS" != "200" ]; then
-            echo "ERROR: Server returned HTTP status $HTTP_STATUS. Is your Kaggle notebook / ngrok tunnel turned on?"
+            echo "ERROR: Server returned HTTP status $HTTP_STATUS."
             exit 1
           fi
           
-          # Extract HTTP body from the final response block
           BODY=$(echo "$RESPONSE" | awk 'BEGIN {RS="\r\n\r\n|\n\n"} END {print}')
-          
           JOB_ID=$(echo "$BODY" | jq -r '.job_id // empty')
           if [ -z "$JOB_ID" ] || [ "$JOB_ID" == "null" ]; then
             echo "Failed to start a generation job -- response body did not contain a job_id."
