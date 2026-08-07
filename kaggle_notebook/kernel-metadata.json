@@ -1,6 +1,6 @@
 {
-  "id": "techsir/The-Main_server",
-  "title": "The-Main-Server",
+  "id": "techsir/The-Main-server",
+  "title": "Server",
   "code_file": "Unified_Generate_Repair_Server.ipynb",
   "language": "python",
   "kernel_type": "notebook",
