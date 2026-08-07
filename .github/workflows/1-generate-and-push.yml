@@ -21,26 +21,29 @@ jobs:
           # Pushes made with the default token don't trigger other workflows (GitHub's built-in
           # anti-loop protection).
           token: ${{ secrets.REPO_PAT }}
-
+          
       - name: Trigger Generation Job
         shell: /usr/bin/bash -e {0}
         env:
           NGROK_URL: ${{ secrets.NGROK_URL }}
           API_KEY: ${{ secrets.API_KEY }}
         run: |
-          # 1. Define the absolute path to the file
-          FILE_PATH="${{ github.workspace }}/spec_docs.zip"
+          # 1. Dynamically find the first file starting with "Shelf" in the workspace
+          # -maxdepth 1 ensures we only look in the root, not subfolders
+          # -print -quit stops after finding the first match for efficiency
+          FILE_PATH=$(find "${{ github.workspace }}" -maxdepth 1 -type f -name "Shelf*" -print -quit)
 
-          # 2. Verify the file exists to avoid confusing curl errors
-          if [ ! -f "$FILE_PATH" ]; then
-            echo "Error: File not found at $FILE_PATH"
-            echo "Current directory: $(pwd)"
-            echo "Files in workspace:"
-            ls -R "${{ github.workspace }}"
+          # 2. Verify the file was found
+          if [ -z "$FILE_PATH" ]; then
+            echo "Error: No file starting with 'Shelf' found in workspace."
+            echo "Available files:"
+            ls -la "${{ github.workspace }}"
             exit 1
           fi
 
-          # 3. Execute curl with the absolute path
+          echo "Found file: $FILE_PATH"
+
+          # 3. Execute curl with the discovered path
           RESPONSE=$(curl -s -X POST "${NGROK_URL}/generate" \
             -H "Authorization: ${API_KEY}" \
             -F "docs=@${FILE_PATH}")
@@ -55,8 +58,7 @@ jobs:
             exit 1
           fi
           
-          echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"   
-          
+          echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"             
       - name: Poll until generation finishes
         env:
           NGROK_URL: ${{ secrets.NGROK_URL }}
