@@ -67,15 +67,20 @@ jobs:
           echo "$RESPONSE"
           echo "--------------------------"
           
+          # Extract HTTP status code from the final response
+          HTTP_STATUS=$(echo "$RESPONSE" | grep -o 'HTTP/[0-9.]* [0-9]*' | tail -n1 | awk '{print $2}')
+          
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "ERROR: Server returned HTTP status $HTTP_STATUS. Is your Kaggle notebook / ngrok tunnel turned on?"
+            exit 1
+          fi
+          
           # Extract HTTP body from the final response block
           BODY=$(echo "$RESPONSE" | awk 'BEGIN {RS="\r\n\r\n|\n\n"} END {print}')
-          if [ -z "$BODY" ]; then
-            BODY="$RESPONSE"
-          fi
           
           JOB_ID=$(echo "$BODY" | jq -r '.job_id // empty')
           if [ -z "$JOB_ID" ] || [ "$JOB_ID" == "null" ]; then
-            echo "Failed to start a generation job -- response body above did not contain a job_id."
+            echo "Failed to start a generation job -- response body did not contain a job_id."
             exit 1
           fi
           echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
