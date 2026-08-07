@@ -29,16 +29,20 @@ jobs:
         env:
           KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      - name: Install kaggle CLI
+        run: pip install --upgrade kaggle
+
+      - name: Configure kaggle credentials
         run: |
-          pip install kaggle
-          
-          # Navigate into the kaggle_notebook folder
-          cd kaggle_notebook
-          
-          echo "Pushing and triggering Kaggle notebook..."
-          # Ensure kernel-metadata.json is properly configured inside kaggle_notebook folder
-          kaggle kernels push 
-          
+          mkdir -p ~/.kaggle
+          echo "${{ secrets.KAGGLE_API_TOKEN }}" > ~/.kaggle/access_token
+          chmod 600 ~/.kaggle/access_token
+
+      - name: Push kernel to Kaggle
+
+        run: kaggle kernels push -p tools
+
+        run: kaggle kernels push -p tools/kaggle_server --accelerator NvidiaTeslaT4
           echo "Kaggle notebook triggered successfully. Waiting 7-9 minutes for startup..."
           # Sleep for 8 minutes (480 seconds) to let model load and ngrok establish
           sleep 480
