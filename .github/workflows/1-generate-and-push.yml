@@ -20,40 +20,20 @@ jobs:
         with:
           token: ${{ secrets.REPO_PAT }}
 
-      - name: Set up Python for Kaggle API
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install kaggle CLI
-        run: pip install --upgrade kaggle
-
-      - name: Auto-start Kaggle Notebook
-        env:
-          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
-          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
-        run: |
-          pip install --upgrade kaggle
-          
-          echo "Pushing and triggering Kaggle notebook..."
-          kaggle kernels push -p kaggle_notebook
-          
-          echo "Kaggle notebook triggered successfully. Waiting 7-9 minutes for startup..."
-          sleep 480
-
-      - name: Wait for the Kaggle server to be reachable
+      - name: Wait for Kaggle server to become reachable
         env:
           NGROK_URL: ${{ secrets.NGROK_URL }}
         run: |
-          for i in $(seq 1 30); do
+          echo "Polling ${NGROK_URL}/health every 10s (timeout after 500s)..."
+          for i in $(seq 1 50); do
             if curl -sf "${NGROK_URL}/health" > /dev/null; then
-              echo "Server is reachable."
+              echo "Server is online and reachable!"
               exit 0
             fi
-            echo "[wait $i/30] Server not reachable yet, retrying in 10s..."
+            echo "[Attempt $i/50] Server not ready yet, retrying in 10s..."
             sleep 10
           done
-          echo "Server never became reachable after extended checks -- is ngrok configured properly in the notebook?"
+          echo "ERROR: Server failed to start or become reachable within 500 seconds."
           exit 1
 
       - name: Find the spec docs zip (any filename containing "Shelf")
