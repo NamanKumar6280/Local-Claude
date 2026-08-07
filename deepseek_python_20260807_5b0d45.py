@@ -5,6 +5,8 @@ generate_the_cousins_secret.py
 Creates the full Unity project "The Cousin's Secret" with all scripts,
 assembly definitions, cinematic sequences, horror effects, and an editor wizard
 that builds the scene on launch. Zero external dependencies.
+
+It also cleans up any stale files (like EnemyAI.cs) that would cause warnings.
 """
 
 import os
@@ -27,6 +29,38 @@ FOLDERS = [
     "ProjectSettings",
 ]
 
+# List of files we create – used to clean up anything not in this set
+CREATED_FILES = [
+    "Assets/Scripts/Core/PlayerController.cs",
+    "Assets/Scripts/Core/MobileInput.cs",
+    "Assets/Scripts/Core/InteractionManager.cs",
+    "Assets/Scripts/Core/IInteractable.cs",
+    "Assets/Scripts/Core/InventorySystem.cs",
+    "Assets/Scripts/Core/ItemData.cs",
+    "Assets/Scripts/Core/DoorController.cs",
+    "Assets/Scripts/Core/LockedContainer.cs",
+    "Assets/Scripts/Core/Fusebox.cs",
+    "Assets/Scripts/Core/KeyPickup.cs",
+    "Assets/Scripts/Core/VasePickup.cs",
+    "Assets/Scripts/Core/ThrowableVase.cs",
+    "Assets/Scripts/Core/FootstepHandler.cs",
+    "Assets/Scripts/Core/GameManager.cs",
+    "Assets/Scripts/Core/ProgressionFlags.cs",
+    "Assets/Scripts/Core/AudioManager.cs",
+    "Assets/Scripts/Core/HorrorFXManager.cs",
+    "Assets/Scripts/Core/IntroCinematicController.cs",
+    "Assets/Scripts/AI/CousinAI.cs",
+    "Assets/Scripts/AI/CousinFSM.cs",
+    "Assets/Scripts/AI/AISettings.cs",
+    "Assets/Scripts/UI/UIManager.cs",
+    "Assets/Scripts/UI/VirtualJoystick.cs",
+    "Assets/Scripts/UI/TypewriterEffect.cs",
+    "Assets/Scripts/UI/CrosshairController.cs",
+    "Assets/Scripts/Editor/ProjectConfigurator.cs",
+    "Assets/Scripts/Editor/SceneSetupWizard.cs",
+]
+
+# Assembly definition files
 ASMDEF_FILES = {
     "Assets/Scripts/Game.Core.asmdef": {
         "name": "Game.Core",
@@ -1586,7 +1620,7 @@ namespace Game.Editor
 #endif
 '''
 
-# ==================== FILE MAP ====================
+# Map of file paths to content
 SCRIPTS = {
     "Assets/Scripts/Core/PlayerController.cs": PLAYER_CONTROLLER,
     "Assets/Scripts/Core/MobileInput.cs": MOBILE_INPUT,
@@ -1617,25 +1651,53 @@ SCRIPTS = {
     "Assets/Scripts/Editor/SceneSetupWizard.cs": SCENE_SETUP_WIZARD,
 }
 
-# ==================== GENERATE ====================
+# ==================== GENERATION & CLEANUP ====================
+def clean_stale_files():
+    """Delete any .cs files that are not in our manifest to avoid leftover conflicts."""
+    if not os.path.exists(PROJECT_ROOT):
+        return
+    for root, dirs, files in os.walk(os.path.join(PROJECT_ROOT, "Assets")):
+        for file in files:
+            if file.endswith(".cs"):
+                full_path = os.path.relpath(os.path.join(root, file), PROJECT_ROOT)
+                # Normalize path separators
+                normalized = full_path.replace("\\", "/")
+                if normalized not in SCRIPTS and normalized not in ASMDEF_FILES:
+                    target = os.path.join(PROJECT_ROOT, full_path)
+                    try:
+                        os.remove(target)
+                        print(f"Removed stale file: {target}")
+                    except Exception as e:
+                        print(f"Failed to remove {target}: {e}")
+
 def create_project():
+    # Create directory structure
     for folder in FOLDERS:
         os.makedirs(os.path.join(PROJECT_ROOT, folder), exist_ok=True)
 
+    # Write assembly definitions
     for path, data in ASMDEF_FILES.items():
-        with open(os.path.join(PROJECT_ROOT, path), 'w') as f:
+        full = os.path.join(PROJECT_ROOT, path)
+        with open(full, 'w') as f:
             json.dump(data, f, indent=2)
 
+    # Clean up old files that could cause warnings
+    clean_stale_files()
+
+    # Write all scripts
     for path, content in SCRIPTS.items():
         full = os.path.join(PROJECT_ROOT, path)
         with open(full, 'w') as f:
             f.write(content.strip() + "\n")
 
-    # Empty scene file
-    open(os.path.join(PROJECT_ROOT, "Assets/Scenes/MainScene.unity"), 'w').close()
+    # Empty scene placeholder
+    scene_path = os.path.join(PROJECT_ROOT, "Assets/Scenes/MainScene.unity")
+    if not os.path.exists(scene_path):
+        open(scene_path, 'w').close()
 
     # .gitignore
-    with open(os.path.join(PROJECT_ROOT, ".gitignore"), 'w') as f:
+    gitignore_path = os.path.join(PROJECT_ROOT, ".gitignore")
+    with open(gitignore_path, 'w') as f:
         f.write("/[Ll]ibrary/\n/[Tt]emp/\n/[Oo]bj/\n/[Bb]uild/\n/[Bb]uilds/\n/[Ll]ogs/\n/[Uu]ser[Ss]ettings/\n")
 
     print(f"Project '{PROJECT_ROOT}' generated successfully. Open it in Unity to complete auto-setup.")
