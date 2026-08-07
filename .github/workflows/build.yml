@@ -53,6 +53,7 @@ jobs:
           targetPlatform: Android
           androidAppBundle: false
           unityVersion: 2022.3.2f1
+          allowDirtyBuild: true
 
       # 6. Upload APK Artifact
       - name: Upload APK Artifact
