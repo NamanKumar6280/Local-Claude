@@ -37,7 +37,7 @@ jobs:
       - name: Auto-start Kaggle Notebook
         run: |
           echo "Pushing and triggering Kaggle notebook..."
-          kaggle kernels push -p kaggle_notebook
+          kaggle kernels push
           
           echo "Kaggle notebook triggered successfully. Waiting 7-9 minutes for startup..."
           sleep 480
