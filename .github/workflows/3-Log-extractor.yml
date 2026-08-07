@@ -1,3 +1,4 @@
+name: 3. Log Extractor 
 on:
   workflow_run:
     workflows: ["2. Compile Only"] # Must match the 'name:' field in 2-compile.yml exactly
