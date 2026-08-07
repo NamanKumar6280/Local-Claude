@@ -1,8 +1,7 @@
 name: 4. Package Project and Error Report
 on:
   workflow_run:
-    workflows: [ "3. Compile Only" ]
-    types: [ completed ]
+    workflows: [ "2-compile" ]
 
 permissions:
   actions: read       # needed to download the triggering run's logs via the API
