@@ -1,901 +1,369 @@
-#!/usr/bin/env python3
-"""
-generate_the_cousins_secret.py
--------------------------------
-Creates the full Unity project "The Cousin's Secret" with all scripts,
-assembly definitions, cinematic sequences, horror effects, an editor wizard
-that builds the scene on launch, a GitHub Actions CI pipeline that resolves
-Android SDK, Library caching, and PlayerPrefs issues, and fully implemented
-gameplay systems. Zero external dependencies. No placeholders.
-"""
-
 import os
-import json
-import shutil
+import sys
 
-PROJECT_ROOT = "TheCousinsSecret"
-
-# Folder structure
-FOLDERS = [
-    "Assets/Scripts/Core",
-    "Assets/Scripts/AI",
-    "Assets/Scripts/UI",
-    "Assets/Scripts/Editor",
-    "Assets/Scenes",
-    "Assets/Resources/Items",
-    "Assets/Prefabs",
-    "Assets/Materials",
-    "Assets/Audio",
-    "Assets/ScriptableObjects",
-    "Assets/Animations",
-    "ProjectSettings",
-    ".github/workflows",
-]
-
-# Assembly definitions
-ASMDEF_FILES = {
-    "Assets/Scripts/Game.Core.asmdef": {
-        "name": "Game.Core",
-        "rootNamespace": "Game.Core",
-        "references": [],
-        "includePlatforms": [],
-        "excludePlatforms": [],
-        "allowUnsafeCode": False,
-        "overrideReferences": False,
-        "precompiledReferences": [],
-        "autoReferenced": True,
-        "defineConstraints": [],
-        "versionDefines": [],
-        "noEngineReferences": False
-    },
-    "Assets/Scripts/AI/Game.AI.asmdef": {
-        "name": "Game.AI",
-        "rootNamespace": "Game.AI",
-        "references": ["Game.Core", "UnityEngine.AIModule"],
-        "includePlatforms": [],
-        "excludePlatforms": [],
-        "allowUnsafeCode": False,
-        "overrideReferences": False,
-        "precompiledReferences": [],
-        "autoReferenced": True,
-        "defineConstraints": [],
-        "versionDefines": [],
-        "noEngineReferences": False
-    },
-    "Assets/Scripts/UI/Game.UI.asmdef": {
-        "name": "Game.UI",
-        "rootNamespace": "Game.UI",
-        "references": ["Game.Core"],
-        "includePlatforms": [],
-        "excludePlatforms": [],
-        "allowUnsafeCode": False,
-        "overrideReferences": False,
-        "precompiledReferences": [],
-        "autoReferenced": True,
-        "defineConstraints": [],
-        "versionDefines": [],
-        "noEngineReferences": False
-    },
-    "Assets/Scripts/Editor/Game.Editor.asmdef": {
-        "name": "Game.Editor",
-        "rootNamespace": "Game.Editor",
-        "references": ["Game.Core", "Game.AI", "Game.UI", "UnityEditor"],
-        "includePlatforms": ["Editor"],
-        "excludePlatforms": [],
-        "allowUnsafeCode": False,
-        "overrideReferences": False,
-        "precompiledReferences": [],
-        "autoReferenced": True,
-        "defineConstraints": [],
-        "versionDefines": [],
-        "noEngineReferences": False
-    }
-}
+# Dictionary mapping relative file paths to their exact complete contents
+FILES = {}
 
 # -----------------------------------------------------------------------------
-# 1. Core scripts
+# 1. PACKAGES & CONFIGURATION FILES
 # -----------------------------------------------------------------------------
 
-PLAYER_CONTROLLER = r'''using UnityEngine;
-using Game.Core;
+FILES["Packages/manifest.json"] = """{
+  "dependencies": {
+    "com.unity.render-pipelines.universal": "14.0.8",
+    "com.unity.ugui": "1.0.0",
+    "com.unity.modules.ai": "1.0.0",
+    "com.unity.modules.audio": "1.0.0",
+    "com.unity.modules.animation": "1.0.0",
+    "com.unity.modules.physics": "1.0.0",
+    "com.unity.modules.ui": "1.0.0",
+    "com.unity.modules.vehicles": "1.0.0"
+  }
+}"""
 
-namespace Game.Core
-{
-    [RequireComponent(typeof(CharacterController))]
-    public class PlayerController : MonoBehaviour
-    {
-        [Header("Movement")]
-        [SerializeField] private float walkSpeed = 5f;
-        [SerializeField] private float sprintSpeed = 8f;
-        [SerializeField] private float crouchSpeed = 2.5f;
-        [SerializeField] private float gravity = -20f;
-        [SerializeField] private float jumpHeight = 1.5f;
-        [SerializeField] private float crouchHeight = 1f;
-        [SerializeField] private float standingHeight = 2f;
-        [SerializeField] private float crouchTransitionSpeed = 10f;
+FILES["ProjectSettings/ProjectSettings.asset"] = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!129 &1
+PlayerSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 22
+  companyName: DefaultCompany
+  productName: The Cousins Secret
+  defaultCursor: {fileID: 0}
+  cursorHotspot: {x: 0, y: 0}
+  m_BuildTargetIcons: []
+  m_BuildTargetPlatformIcons: []
+  m_BuildTargetBatching: []
+  m_GraphicsAPIs: []
+  m_DefaultGraphicsAPIs: {}
+  m_BuildTargetGraphicsAPIs: []
+  m_BuildTargetPreferredNativeResolutions: []
+  m_BuildTargetResolutionScales: []
+  m_BuildTargetSupportedAspectRatios: []
+  m_AndroidTargetArchitectures: 2
+  m_AndroidMinSdkVersion: 24
+  m_AndroidTargetSdkVersion: 33
+  m_ScriptingBackend: 1
+  m_ActiveInputHandler: 0
+"""
 
-        [Header("Stamina")]
-        [SerializeField] private float maxStamina = 100f;
-        [SerializeField] private float staminaDrainRate = 20f;
-        [SerializeField] private float staminaRegenRate = 15f;
-        [SerializeField] private float staminaRegenDelay = 1.5f;
-        [SerializeField] private float minStaminaToSprint = 10f;
+FILES["ProjectSettings/QualitySettings.asset"] = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!47 &1
+QualitySettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 14
+  m_CurrentQuality: 1
+  m_QualitySettings:
+  - m_Name: URP Mobile Optimized
+    m_VSyncCount: 0
+    m_TargetFrameRate: 60
+    m_ShadowDistance: 25.0
+    m_TextureQuality: 0
+    m_AnisotropicTextures: 0
+    m_AntiAliasing: 0
+    m_SoftParticles: 0
+    m_RealtimeReflectionProbes: 0
+    m_BillboardsFaceCameraPosition: 0
+"""
 
-        [Header("Look")]
-        [SerializeField] private Transform cameraTransform;
-        [SerializeField] private float lookSensitivity = 2f;
-        [SerializeField] private float maxLookAngle = 80f;
+FILES["ProjectSettings/TagManager.asset"] = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!78 &1
+TagManager:
+  serializedVersion: 2
+  tags:
+  - Player
+  - Monster
+  - Interactable
+  - Key
+  - HideSpot
+  layers:
+  - Default
+  - TransparentFX
+  - Ignore Raycast
+  - Water
+  - UI
+  - Player
+  - Monster
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  m_SortingLayers:
+  - name: Default
+    uniqueID: 0
+    locked: 0
+"""
 
-        [Header("Headbob")]
-        [SerializeField] private float headbobFrequency = 2f;
-        [SerializeField] private float headbobAmplitude = 0.05f;
-        [SerializeField] private AnimationCurve headbobCurve = AnimationCurve.EaseInOut(0,0,1,1);
+# -----------------------------------------------------------------------------
+# 2. ASSEMBLY DEFINITIONS
+# -----------------------------------------------------------------------------
 
-        [Header("FOV")]
-        [SerializeField] private Camera playerCamera;
-        [SerializeField] private float normalFOV = 60f;
-        [SerializeField] private float sprintFOV = 70f;
-        [SerializeField] private float fovLerpSpeed = 5f;
+FILES["Assets/Scripts/Core/Game.Core.asmdef"] = """{
+    "name": "Game.Core",
+    "rootNamespace": "Game.Core",
+    "references": [
+        "GUID:15fc0a57446b3144c949da3e2b9737a9",
+        "GUID:df380645f10b7bc4b97d4f5eb63018e6"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}"""
 
-        [Header("Footsteps")]
-        [SerializeField] private FootstepHandler footstepHandler;
-        [SerializeField] private float walkFootstepInterval = 0.5f;
-        [SerializeField] private float sprintFootstepInterval = 0.35f;
-        [SerializeField] private float crouchFootstepInterval = 0.7f;
+FILES["Assets/Scripts/Player/Game.Player.asmdef"] = """{
+    "name": "Game.Player",
+    "rootNamespace": "Game.Player",
+    "references": [
+        "Game.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}"""
 
-        [Header("Input")]
-        [SerializeField] private bool useMobileInput = false;
+FILES["Assets/Scripts/AI/Game.AI.asmdef"] = """{
+    "name": "Game.AI",
+    "rootNamespace": "Game.AI",
+    "references": [
+        "Game.Core",
+        "Game.Player"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}"""
 
-        public NoiseLevel CurrentNoiseLevel { get; private set; } = NoiseLevel.Silent;
-        public bool IsSprinting { get; private set; }
-        public bool IsCrouching { get; private set; }
-        public bool IsGrounded => controller.isGrounded;
-        public float StaminaNormalized => stamina / maxStamina;
+FILES["Assets/Scripts/UI/Game.UI.asmdef"] = """{
+    "name": "Game.UI",
+    "rootNamespace": "Game.UI",
+    "references": [
+        "Game.Core",
+        "Game.Player"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}"""
 
-        private CharacterController controller;
-        private Vector3 velocity;
-        private float stamina;
-        private float staminaRegenTimer;
-        private float yRotation;
-        private float xRotation;
-        private float headbobTimer;
-        private float footstepTimer;
-        private Vector3 originalCameraLocalPos;
-        private float originalControllerHeight;
-        private Vector3 originalControllerCenter;
-        private float currentCrouchHeight;
-        private Vector3 currentCrouchCenter;
+# -----------------------------------------------------------------------------
+# 3. CORE & MANAGERS
+# -----------------------------------------------------------------------------
 
-        private void Awake()
-        {
-            controller = GetComponent<CharacterController>();
-            if (cameraTransform == null) cameraTransform = GetComponentInChildren<Camera>().transform;
-            if (playerCamera == null) playerCamera = cameraTransform.GetComponent<Camera>();
-            originalControllerHeight = controller.height;
-            originalControllerCenter = controller.center;
-            originalCameraLocalPos = cameraTransform.localPosition;
-            stamina = maxStamina;
-            currentCrouchHeight = originalControllerHeight;
-            currentCrouchCenter = originalControllerCenter;
-        }
-
-        private void Update()
-        {
-            HandleLook();
-            HandleMovement();
-            HandleHeadbob();
-            HandleFootsteps();
-            HandleFOV();
-            UpdateNoiseLevel();
-        }
-
-        private void HandleLook()
-        {
-            if (useMobileInput) return;
-            float mouseX = Input.GetAxis("Mouse X") * lookSensitivity;
-            float mouseY = Input.GetAxis("Mouse Y") * lookSensitivity;
-            yRotation += mouseX;
-            xRotation -= mouseY;
-            xRotation = Mathf.Clamp(xRotation, -maxLookAngle, maxLookAngle);
-            cameraTransform.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
-            transform.rotation = Quaternion.Euler(0f, yRotation, 0f);
-        }
-
-        public void ApplyLookInput(Vector2 lookDelta)
-        {
-            yRotation += lookDelta.x * lookSensitivity;
-            xRotation -= lookDelta.y * lookSensitivity;
-            xRotation = Mathf.Clamp(xRotation, -maxLookAngle, maxLookAngle);
-            cameraTransform.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
-            transform.rotation = Quaternion.Euler(0f, yRotation, 0f);
-        }
-
-        private void HandleMovement()
-        {
-            if (controller.isGrounded && velocity.y < 0)
-                velocity.y = -2f;
-
-            float horizontal = useMobileInput ? MobileInput.MoveInput.x : Input.GetAxis("Horizontal");
-            float vertical = useMobileInput ? MobileInput.MoveInput.y : Input.GetAxis("Vertical");
-
-            Vector3 move = transform.right * horizontal + transform.forward * vertical;
-            move = Vector3.ClampMagnitude(move, 1f);
-
-            IsCrouching = Input.GetButton("Crouch") || (useMobileInput && MobileInput.CrouchPressed);
-
-            float speed = walkSpeed;
-            IsSprinting = false;
-
-            if (!IsCrouching && stamina > minStaminaToSprint &&
-                (Input.GetKey(KeyCode.LeftShift) || (useMobileInput && MobileInput.SprintHeld)) &&
-                vertical > 0.1f)
-            {
-                IsSprinting = true;
-                speed = sprintSpeed;
-                stamina -= staminaDrainRate * Time.deltaTime;
-                staminaRegenTimer = 0f;
-            }
-            else if (IsCrouching)
-            {
-                speed = crouchSpeed;
-            }
-
-            if (!IsSprinting && stamina < maxStamina)
-            {
-                staminaRegenTimer += Time.deltaTime;
-                if (staminaRegenTimer >= staminaRegenDelay)
-                    stamina += staminaRegenRate * Time.deltaTime;
-            }
-            stamina = Mathf.Clamp(stamina, 0f, maxStamina);
-
-            controller.Move(move * speed * Time.deltaTime);
-            velocity.y += gravity * Time.deltaTime;
-            controller.Move(velocity * Time.deltaTime);
-
-            float targetHeight = IsCrouching ? crouchHeight : originalControllerHeight;
-            Vector3 targetCenter = IsCrouching ? new Vector3(0, crouchHeight*0.5f, 0) : originalControllerCenter;
-            currentCrouchHeight = Mathf.Lerp(currentCrouchHeight, targetHeight, Time.deltaTime * crouchTransitionSpeed);
-            currentCrouchCenter = Vector3.Lerp(currentCrouchCenter, targetCenter, Time.deltaTime * crouchTransitionSpeed);
-            controller.height = currentCrouchHeight;
-            controller.center = currentCrouchCenter;
-
-            float camTargetY = IsCrouching ? crouchHeight * 0.8f : originalCameraLocalPos.y;
-            Vector3 camLocal = cameraTransform.localPosition;
-            camLocal.y = Mathf.Lerp(camLocal.y, camTargetY, Time.deltaTime * crouchTransitionSpeed);
-            cameraTransform.localPosition = camLocal;
-
-            if ((Input.GetButtonDown("Jump") || (useMobileInput && MobileInput.JumpPressed)) && controller.isGrounded)
-                velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-        }
-
-        private void HandleHeadbob()
-        {
-            float horizontal = useMobileInput ? MobileInput.MoveInput.x : Input.GetAxis("Horizontal");
-            float vertical = useMobileInput ? MobileInput.MoveInput.y : Input.GetAxis("Vertical");
-            bool isMoving = Mathf.Abs(horizontal) > 0.1f || Mathf.Abs(vertical) > 0.1f;
-
-            if (isMoving && controller.isGrounded)
-            {
-                headbobTimer += Time.deltaTime * (IsSprinting ? headbobFrequency * 1.5f : headbobFrequency);
-                float bobAmount = headbobCurve.Evaluate(headbobTimer % 1f) * headbobAmplitude;
-                Vector3 camPos = cameraTransform.localPosition;
-                camPos.y += bobAmount;
-                cameraTransform.localPosition = camPos;
-            }
-            else
-            {
-                headbobTimer = 0f;
-            }
-        }
-
-        private void HandleFootsteps()
-        {
-            bool isMoving = controller.velocity.magnitude > 0.2f && controller.isGrounded;
-            if (!isMoving)
-            {
-                footstepTimer = 0f;
-                return;
-            }
-            float interval = IsSprinting ? sprintFootstepInterval : (IsCrouching ? crouchFootstepInterval : walkFootstepInterval);
-            footstepTimer += Time.deltaTime;
-            if (footstepTimer >= interval)
-            {
-                footstepTimer = 0f;
-                footstepHandler?.PlayFootstep();
-            }
-        }
-
-        private void HandleFOV()
-        {
-            float targetFOV = IsSprinting ? sprintFOV : normalFOV;
-            playerCamera.fieldOfView = Mathf.Lerp(playerCamera.fieldOfView, targetFOV, Time.deltaTime * fovLerpSpeed);
-        }
-
-        private void UpdateNoiseLevel()
-        {
-            if (!controller.isGrounded) CurrentNoiseLevel = NoiseLevel.Silent;
-            else if (IsSprinting) CurrentNoiseLevel = NoiseLevel.Loud;
-            else if (IsCrouching) CurrentNoiseLevel = NoiseLevel.Silent;
-            else CurrentNoiseLevel = NoiseLevel.Normal;
-        }
-    }
-
-    public enum NoiseLevel { Silent, Normal, Loud }
-}
-'''
-
-MOBILE_INPUT = r'''using UnityEngine;
-using UnityEngine.EventSystems;
-
-namespace Game.Core
-{
-    public class MobileInput : MonoBehaviour
-    {
-        public static Vector2 MoveInput { get; private set; }
-        public static Vector2 LookInput { get; private set; }
-        public static bool CrouchPressed { get; private set; }
-        public static bool JumpPressed { get; private set; }
-        public static bool SprintHeld { get; private set; }
-
-        [SerializeField] private VirtualJoystick moveJoystick;
-        [SerializeField] private VirtualJoystick lookJoystick;
-        [SerializeField] private UnityEngine.UI.Button crouchButton;
-        [SerializeField] private UnityEngine.UI.Button jumpButton;
-        [SerializeField] private UnityEngine.UI.Button sprintButton;
-
-        private void Awake()
-        {
-            MoveInput = Vector2.zero;
-            LookInput = Vector2.zero;
-        }
-
-        private void OnEnable()
-        {
-            crouchButton?.onClick.AddListener(() => CrouchPressed = !CrouchPressed);
-            jumpButton?.onClick.AddListener(() => JumpPressed = true);
-            if (sprintButton)
-            {
-                EventTrigger trigger = sprintButton.gameObject.AddComponent<EventTrigger>();
-                EventTrigger.Entry down = new EventTrigger.Entry { eventID = EventTriggerType.PointerDown };
-                down.callback.AddListener((data) => SprintHeld = true);
-                EventTrigger.Entry up = new EventTrigger.Entry { eventID = EventTriggerType.PointerUp };
-                up.callback.AddListener((data) => SprintHeld = false);
-                trigger.triggers.Add(down);
-                trigger.triggers.Add(up);
-            }
-        }
-
-        private void Update()
-        {
-            MoveInput = moveJoystick ? moveJoystick.Direction : Vector2.zero;
-            LookInput = lookJoystick ? lookJoystick.Direction * 2f : Vector2.zero;
-            JumpPressed = false;
-        }
-    }
-}
-'''
-
-INTERACTION_MANAGER = r'''using UnityEngine;
-using UnityEngine.UI;
-
-namespace Game.Core
-{
-    public class InteractionManager : MonoBehaviour
-    {
-        [SerializeField] private float interactRange = 3f;
-        [SerializeField] private LayerMask interactableLayer = -1;
-        [SerializeField] private Camera playerCamera;
-        [SerializeField] private Image crosshair;
-        [SerializeField] private Text interactionPrompt;
-
-        private IInteractable currentTarget;
-
-        private void Start()
-        {
-            if (playerCamera == null) playerCamera = Camera.main;
-        }
-
-        private void Update()
-        {
-            DetectInteractable();
-            HandleInput();
-        }
-
-        private void DetectInteractable()
-        {
-            Ray ray = new Ray(playerCamera.transform.position, playerCamera.transform.forward);
-            if (Physics.Raycast(ray, out RaycastHit hit, interactRange, interactableLayer))
-            {
-                IInteractable interactable = hit.collider.GetComponentInParent<IInteractable>();
-                if (interactable != null)
-                {
-                    currentTarget = interactable;
-                    crosshair.color = Color.green;
-                    interactionPrompt.text = interactable.GetPromptText();
-                    return;
-                }
-            }
-            currentTarget = null;
-            crosshair.color = Color.white;
-            interactionPrompt.text = "";
-        }
-
-        private void HandleInput()
-        {
-            if (Input.GetKeyDown(KeyCode.E) || MobileInput.JumpPressed)
-            {
-                currentTarget?.Interact();
-            }
-        }
-    }
-}
-'''
-
-INTERACTABLE_INTERFACE = r'''namespace Game.Core
-{
-    public interface IInteractable
-    {
-        void Interact();
-        string GetPromptText();
-    }
-}
-'''
-
-INVENTORY_SYSTEM = r'''using System.Collections.Generic;
+FILES["Assets/Scripts/Core/GameManager.cs"] = """using System;
 using UnityEngine;
 
 namespace Game.Core
 {
-    public class InventorySystem : MonoBehaviour
+    public enum GameState
     {
-        public static InventorySystem Instance { get; private set; }
-
-        [SerializeField] private int maxSlots = 6;
-        private List<ItemData> items = new List<ItemData>();
-
-        public System.Action<ItemData> OnItemAdded;
-        public System.Action<ItemData> OnItemRemoved;
-
-        private void Awake()
-        {
-            if (Instance == null) Instance = this;
-            else Destroy(gameObject);
-        }
-
-        public bool AddItem(ItemData item)
-        {
-            if (items.Count >= maxSlots || HasItem(item)) return false;
-            items.Add(item);
-            OnItemAdded?.Invoke(item);
-            return true;
-        }
-
-        public bool RemoveItem(ItemData item)
-        {
-            if (items.Remove(item))
-            {
-                OnItemRemoved?.Invoke(item);
-                return true;
-            }
-            return false;
-        }
-
-        public bool HasItem(ItemData item) => items.Contains(item);
-        public bool HasItemByName(string name) => items.Exists(i => i.itemName == name);
-        public ItemData GetItemByName(string name) => items.Find(i => i.itemName == name);
+        CinematicIntro,
+        Exploration,
+        Chase,
+        Jumpscare,
+        GameOver,
+        Victory,
+        CinematicOutro
     }
-}
-'''
-
-ITEM_DATA = r'''using UnityEngine;
-
-namespace Game.Core
-{
-    [CreateAssetMenu(fileName = "NewItem", menuName = "Inventory/Item Data")]
-    public class ItemData : ScriptableObject
-    {
-        public string itemName;
-        public Sprite icon;
-        public ItemType type;
-        public GameObject pickupPrefab;
-    }
-
-    public enum ItemType { KeyRed, KeyBlue, KeyMaster, Lockpick, Fuse, WaterBottle, Vase }
-}
-'''
-
-DOOR_CONTROLLER = r'''using UnityEngine;
-
-namespace Game.Core
-{
-    [RequireComponent(typeof(BoxCollider))]
-    public class DoorController : MonoBehaviour, IInteractable
-    {
-        public string requiredKeyName;
-        public bool isLocked = true;
-        public bool isJammed = false;
-        public Transform doorPivot;
-        public float openAngle = 90f;
-        public float openSpeed = 2f;
-
-        private bool isOpen;
-        private Quaternion closedRotation;
-        private Quaternion openRotation;
-
-        private void Start()
-        {
-            closedRotation = doorPivot.localRotation;
-            openRotation = closedRotation * Quaternion.Euler(0, openAngle, 0);
-        }
-
-        private void Update()
-        {
-            doorPivot.localRotation = Quaternion.Slerp(doorPivot.localRotation, isOpen ? openRotation : closedRotation, Time.deltaTime * openSpeed);
-        }
-
-        public void Interact()
-        {
-            if (isOpen) return;
-
-            if (isLocked)
-            {
-                if (InventorySystem.Instance.HasItemByName(requiredKeyName))
-                {
-                    InventorySystem.Instance.RemoveItem(InventorySystem.Instance.GetItemByName(requiredKeyName));
-                    Unlock();
-                }
-                else UIManager.Instance?.ShowMessage("Locked - need " + requiredKeyName);
-            }
-            else if (isJammed)
-            {
-                if (InventorySystem.Instance.HasItemByName("Lockpick"))
-                {
-                    InventorySystem.Instance.RemoveItem(InventorySystem.Instance.GetItemByName("Lockpick"));
-                    isJammed = false;
-                    Unlock();
-                }
-                else UIManager.Instance?.ShowMessage("Jammed - need lockpick");
-            }
-            else Unlock();
-        }
-
-        private void Unlock()
-        {
-            isLocked = false;
-            isOpen = true;
-            ProgressionFlags.FlagDoorOpened(gameObject.name);
-        }
-
-        public string GetPromptText()
-        {
-            if (isOpen) return "";
-            return isLocked ? "Unlock (need key)" : (isJammed ? "Unjam (need lockpick)" : "Open");
-        }
-    }
-}
-'''
-
-LOCKED_CONTAINER = r'''using UnityEngine;
-
-namespace Game.Core
-{
-    public class LockedContainer : MonoBehaviour, IInteractable
-    {
-        public string requiredItemName;
-        public ItemData containedItem;
-        public Transform spawnPoint;
-
-        private bool opened;
-
-        public void Interact()
-        {
-            if (opened) return;
-            if (InventorySystem.Instance.HasItemByName(requiredItemName))
-            {
-                InventorySystem.Instance.RemoveItem(InventorySystem.Instance.GetItemByName(requiredItemName));
-                opened = true;
-                if (containedItem && spawnPoint)
-                    Instantiate(containedItem.pickupPrefab, spawnPoint.position, spawnPoint.rotation);
-            }
-            else UIManager.Instance?.ShowMessage("Need " + requiredItemName);
-        }
-
-        public string GetPromptText() => opened ? "" : "Open (need " + requiredItemName + ")";
-    }
-}
-'''
-
-FUSEBOX = r'''using UnityEngine;
-
-namespace Game.Core
-{
-    public class Fusebox : MonoBehaviour, IInteractable
-    {
-        public bool isFixed;
-        public GameObject poweredObject;
-
-        public void Interact()
-        {
-            if (isFixed) return;
-            if (InventorySystem.Instance.HasItemByName("Fuse"))
-            {
-                InventorySystem.Instance.RemoveItem(InventorySystem.Instance.GetItemByName("Fuse"));
-                isFixed = true;
-                if (poweredObject) poweredObject.SetActive(true);
-                ProgressionFlags.FusePlaced = true;
-            }
-            else UIManager.Instance?.ShowMessage("Need a fuse");
-        }
-
-        public string GetPromptText() => isFixed ? "" : "Insert Fuse";
-    }
-}
-'''
-
-KEY_PICKUP = r'''using UnityEngine;
-
-namespace Game.Core
-{
-    [RequireComponent(typeof(SphereCollider))]
-    public class KeyPickup : MonoBehaviour, IInteractable
-    {
-        public ItemData itemData;
-
-        private void Start() => GetComponent<SphereCollider>().isTrigger = true;
-
-        public void Interact()
-        {
-            if (InventorySystem.Instance.AddItem(itemData))
-            {
-                Destroy(gameObject);
-                UIManager.Instance?.ShowMessage("Picked up " + itemData.itemName);
-            }
-        }
-
-        public string GetPromptText() => "Pick up " + itemData.itemName;
-    }
-}
-'''
-
-VASE_PICKUP = r'''using UnityEngine;
-
-namespace Game.Core
-{
-    public class VasePickup : MonoBehaviour, IInteractable
-    {
-        public ItemData vaseItemData;
-        public GameObject throwablePrefab;
-
-        public void Interact()
-        {
-            if (InventorySystem.Instance.AddItem(vaseItemData))
-            {
-                ThrowableVase existing = FindObjectOfType<ThrowableVase>();
-                if (!existing && throwablePrefab)
-                {
-                    GameObject obj = Instantiate(throwablePrefab, Camera.main.transform);
-                    obj.transform.localPosition = new Vector3(0.5f, -0.3f, 1f);
-                }
-                Destroy(gameObject);
-            }
-        }
-
-        public string GetPromptText() => "Pick up Vase";
-    }
-}
-'''
-
-THROWABLE_VASE = r'''using System.Collections;
-using UnityEngine;
-
-namespace Game.Core
-{
-    public class ThrowableVase : MonoBehaviour
-    {
-        public float throwForce = 500f;
-        public float noiseRadius = 15f;
-        public LayerMask aiLayer;
-
-        private Rigidbody rb;
-        private bool thrown;
-
-        private void Start()
-        {
-            rb = GetComponent<Rigidbody>();
-            if (!rb) rb = gameObject.AddComponent<Rigidbody>();
-            rb.isKinematic = true;
-        }
-
-        private void Update()
-        {
-            if (!thrown && (Input.GetMouseButtonDown(1) || Input.GetKeyDown(KeyCode.F)))
-                Throw();
-        }
-
-        private void Throw()
-        {
-            thrown = true;
-            transform.SetParent(null);
-            rb.isKinematic = false;
-            rb.AddForce(Camera.main.transform.forward * throwForce);
-            StartCoroutine(DetectLanding());
-        }
-
-        private IEnumerator DetectLanding()
-        {
-            yield return new WaitForSeconds(0.5f);
-            while (rb.velocity.magnitude > 0.1f) yield return null;
-            Collider[] ais = Physics.OverlapSphere(transform.position, noiseRadius, aiLayer);
-            foreach (var c in ais)
-            {
-                CousinAI ai = c.GetComponent<CousinAI>();
-                if (ai) ai.HearNoise(transform.position, noiseRadius);
-            }
-            Destroy(gameObject, 2f);
-        }
-    }
-}
-'''
-
-FOOTSTEP_HANDLER = r'''using UnityEngine;
-
-namespace Game.Core
-{
-    public class FootstepHandler : MonoBehaviour
-    {
-        [System.Serializable]
-        public struct SurfaceFootstep
-        {
-            public string surfaceTag;
-            public AudioClip[] clips;
-            public float volume;
-        }
-
-        public SurfaceFootstep[] surfaces;
-        public float defaultVolume = 0.5f;
-        public AudioClip[] defaultClips;
-        public AudioSource audioSource;
-
-        public void PlayFootstep()
-        {
-            if (Physics.Raycast(transform.position, Vector3.down, out RaycastHit hit, 2f))
-            {
-                foreach (var s in surfaces)
-                {
-                    if (hit.collider.CompareTag(s.surfaceTag) && s.clips.Length > 0)
-                    {
-                        PlayRandom(s.clips, s.volume);
-                        return;
-                    }
-                }
-            }
-            if (defaultClips.Length > 0) PlayRandom(defaultClips, defaultVolume);
-        }
-
-        private void PlayRandom(AudioClip[] clips, float volume)
-        {
-            audioSource.PlayOneShot(clips[Random.Range(0, clips.Length)], volume);
-        }
-    }
-}
-'''
-
-GAME_MANAGER = r'''using UnityEngine;
-using Game.UI;
-
-namespace Game.Core
-{
-    public enum GameState { Exploration, Chase, Jumpscare, GameOver, Victory }
 
     public class GameManager : MonoBehaviour
     {
         public static GameManager Instance { get; private set; }
-        public GameState CurrentState { get; private set; } = GameState.Exploration;
 
-        [SerializeField] private AudioManager audioManager;
-        [SerializeField] private HorrorFXManager fxManager;
+        public GameState CurrentState { get; private set; } = GameState.CinematicIntro;
 
-        public System.Action<GameState> OnStateChanged;
+        public event Action<GameState> OnGameStateChanged;
+
+        [Header("Game Progression Flags")]
+        public bool HasWaterBottle = false;
+        public bool SawLevitation = false;
+        public bool HouseKeyFound = false;
+        public bool MainDoorUnlocked = false;
 
         private void Awake()
         {
-            if (Instance) { Destroy(gameObject); return; }
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
             Instance = this;
             DontDestroyOnLoad(gameObject);
         }
 
-        private void Start() => ChangeState(GameState.Exploration);
-
-        public void ChangeState(GameState newState)
+        public void SetState(GameState newState)
         {
-            CurrentState = newState;
-            OnStateChanged?.Invoke(newState);
+            if (CurrentState == newState) return;
 
-            switch (newState)
+            CurrentState = newState;
+            Debug.Log($"[GameManager] Game State Changed To: {newState}");
+            OnGameStateChanged?.Invoke(newState);
+
+            if (newState == GameState.Jumpscare || newState == GameState.GameOver)
             {
-                case GameState.Exploration:
-                    audioManager.SetExplorationMode();
-                    fxManager.SetScaryProfile(false);
-                    break;
-                case GameState.Chase:
-                    audioManager.StartChaseMusic();
-                    fxManager.SetScaryProfile(true);
-                    break;
-                case GameState.Jumpscare:
-                    audioManager.PlayJumpscare();
-                    break;
-                case GameState.GameOver:
-                    UIManager.Instance.ShowGameOver();
-                    break;
-                case GameState.Victory:
-                    FindObjectOfType<IntroCinematicController>()?.PlayOutro();
-                    break;
+                Time.timeScale = 1.0f;
             }
         }
 
-        public void PlayerDetected() => ChangeState(GameState.Chase);
-        public void PlayerCaught() => ChangeState(GameState.Jumpscare);
-    }
-}
-'''
-
-PROGRESSION_FLAGS = r'''namespace Game.Core
-{
-    public static class ProgressionFlags
-    {
-        public static bool FusePlaced;
-        public static bool CousinRoomUnlocked;
-        public static bool MasterKeyObtained;
-        public static bool ExitDoorOpened;
-
-        public static void FlagDoorOpened(string doorName)
+        public void TriggerJumpscare()
         {
-            if (doorName.Contains("Storage")) { }
-            else if (doorName.Contains("CousinRoom")) CousinRoomUnlocked = true;
-            else if (doorName.Contains("Exit")) ExitDoorOpened = true;
+            if (CurrentState == GameState.GameOver || CurrentState == GameState.Victory) return;
+            SetState(GameState.Jumpscare);
+        }
+
+        public void TriggerGameOver()
+        {
+            SetState(GameState.GameOver);
+        }
+
+        public void TriggerVictory()
+        {
+            SetState(GameState.Victory);
         }
     }
 }
-'''
+"""
 
-AUDIO_MANAGER = r'''using UnityEngine;
+FILES["Assets/Scripts/Core/AudioManager.cs"] = """using UnityEngine;
 
 namespace Game.Core
 {
     public class AudioManager : MonoBehaviour
     {
-        public AudioSource musicSource;
-        public AudioSource sfxSource;
-        public AudioClip explorationAmbient;
-        public AudioClip chaseMusic;
-        public AudioClip jumpscareSound;
-        public AudioClip victorySting;
-        public AudioClip heartbeatSound;
+        public static AudioManager Instance { get; private set; }
 
-        public void SetExplorationMode() => PlayMusic(explorationAmbient);
-        public void StartChaseMusic() => PlayMusic(chaseMusic);
-        public void PlayJumpscare() => sfxSource.PlayOneShot(jumpscareSound);
-        public void PlayVictorySting() => sfxSource.PlayOneShot(victorySting);
+        [Header("Audio Sources")]
+        [SerializeField] private AudioSource ambientSource;
+        [SerializeField] private AudioSource heartbeatSource;
+        [SerializeField] private AudioSource sfxSource;
 
-        private void PlayMusic(AudioClip clip)
+        [Header("Audio Clips")]
+        [SerializeField] private AudioClip ambientHorrorClip;
+        [SerializeField] private AudioClip heartbeatClip;
+        [SerializeField] private AudioClip jumpscareSound;
+        [SerializeField] private AudioClip doorOpenSound;
+        [SerializeField] private AudioClip doorLockedSound;
+        [SerializeField] private AudioClip itemPickupSound;
+
+        private float targetPitch = 1.0f;
+        private float targetVolume = 0.0f;
+
+        private void Awake()
         {
-            if (musicSource.clip == clip) return;
-            musicSource.clip = clip;
-            musicSource.Play();
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            Instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            InitSources();
         }
 
-        public void PlayHeartbeat(float intensity)
+        private void InitSources()
         {
-            if (!heartbeatSound) return;
-            sfxSource.pitch = Mathf.Lerp(0.8f, 1.5f, intensity);
-            sfxSource.volume = Mathf.Lerp(0.2f, 1f, intensity);
-            if (!sfxSource.isPlaying) sfxSource.PlayOneShot(heartbeatSound);
+            if (ambientSource == null) ambientSource = gameObject.AddComponent<AudioSource>();
+            if (heartbeatSource == null) heartbeatSource = gameObject.AddComponent<AudioSource>();
+            if (sfxSource == null) sfxSource = gameObject.AddComponent<AudioSource>();
+
+            ambientSource.loop = true;
+            ambientSource.playOnAwake = false;
+            
+            heartbeatSource.loop = true;
+            heartbeatSource.clip = heartbeatClip;
+            heartbeatSource.volume = 0f;
+            heartbeatSource.playOnAwake = false;
+            if (heartbeatClip != null) heartbeatSource.Play();
         }
+
+        private void Update()
+        {
+            if (heartbeatSource != null && heartbeatSource.isPlaying)
+            {
+                heartbeatSource.volume = Mathf.Lerp(heartbeatSource.volume, targetVolume, Time.deltaTime * 3f);
+                heartbeatSource.pitch = Mathf.Lerp(heartbeatSource.pitch, targetPitch, Time.deltaTime * 3f);
+            }
+        }
+
+        public void UpdateHeartbeat(float monsterDistance, float maxDistance = 15f)
+        {
+            if (monsterDistance >= maxDistance)
+            {
+                targetVolume = 0f;
+                targetPitch = 1f;
+            }
+            else
+            {
+                float t = 1f - Mathf.Clamp01(monsterDistance / maxDistance);
+                targetVolume = Mathf.Lerp(0.2f, 1.0f, t);
+                targetPitch = Mathf.Lerp(0.8f, 1.8f, t);
+            }
+        }
+
+        public void PlaySFX(AudioClip clip, float volume = 1.0f)
+        {
+            if (clip != null && sfxSource != null)
+            {
+                sfxSource.PlayOneShot(clip, volume);
+            }
+        }
+
+        public void PlayJumpscareSound() => PlaySFX(jumpscareSound, 1.0f);
+        public void PlayDoorOpen() => PlaySFX(doorOpenSound, 0.8f);
+        public void PlayDoorLocked() => PlaySFX(doorLockedSound, 0.8f);
+        public void PlayPickup() => PlaySFX(itemPickupSound, 0.8f);
     }
 }
-'''
+"""
 
-HORROR_FX_MANAGER = r'''using UnityEngine;
+FILES["Assets/Scripts/Core/HorrorFXManager.cs"] = """using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
@@ -903,800 +371,893 @@ namespace Game.Core
 {
     public class HorrorFXManager : MonoBehaviour
     {
-        public Volume globalVolume;
+        public static HorrorFXManager Instance { get; private set; }
+
+        [SerializeField] private Volume globalVolume;
         private Vignette vignette;
-        private ChromaticAberration chromatic;
-        private FilmGrain grain;
+        private ChromaticAberration chromaticAberration;
+        private FilmGrain filmGrain;
 
-        [Range(0,1)] public float scaryIntensity = 1f;
-
-        private void Start()
-        {
-            if (!globalVolume) globalVolume = FindObjectOfType<Volume>();
-            globalVolume.profile.TryGet(out vignette);
-            globalVolume.profile.TryGet(out chromatic);
-            globalVolume.profile.TryGet(out grain);
-        }
-
-        public void SetScaryProfile(bool active)
-        {
-            if (vignette) vignette.intensity.value = active ? 0.4f * scaryIntensity : 0.2f;
-            if (chromatic) chromatic.intensity.value = active ? 0.6f * scaryIntensity : 0f;
-            if (grain) grain.intensity.value = active ? 0.3f * scaryIntensity : 0f;
-        }
-    }
-}
-'''
-
-INTRO_CINEMATIC_CONTROLLER = r'''using System.Collections;
-using UnityEngine;
-using Game.UI;
-
-namespace Game.Core
-{
-    public class IntroCinematicController : MonoBehaviour
-    {
-        public Transform playerCamera;
-        public Transform bedPosition, kitchenPosition, hallwayPosition, cousinRoomPosition;
-        public Transform cousinTransform;
-        public GameObject levitationFX;
-        public float panDuration = 2f;
-        public AnimationCurve panCurve = AnimationCurve.EaseInOut(0,0,1,1);
-
-        private PlayerController player;
-
-        public void PlayIntro()
-        {
-            player = FindObjectOfType<PlayerController>();
-            player.enabled = false;
-            StartCoroutine(IntroSequence());
-        }
-
-        private IEnumerator IntroSequence()
-        {
-            yield return MoveCamera(bedPosition, kitchenPosition, panDuration);
-            AudioManager am = FindObjectOfType<AudioManager>();
-            if (am) am.sfxSource.PlayOneShot(am.jumpscareSound);
-
-            yield return new WaitForSeconds(1f);
-            yield return MoveCamera(kitchenPosition, hallwayPosition, panDuration);
-            yield return MoveCamera(hallwayPosition, cousinRoomPosition, panDuration);
-
-            DoorController door = FindObjectOfType<DoorController>();
-            if (door) door.Interact();
-
-            float elapsed = 0f;
-            Vector3 startPos = cousinTransform.position;
-            Vector3 levitatePos = startPos + Vector3.up * 1.5f;
-            while (elapsed < 2f)
-            {
-                cousinTransform.position = Vector3.Lerp(startPos, levitatePos, elapsed / 2f);
-                if (levitationFX) levitationFX.SetActive(true);
-                elapsed += Time.deltaTime;
-                yield return null;
-            }
-
-            Quaternion targetRot = Quaternion.LookRotation(playerCamera.position - cousinTransform.position);
-            while (Quaternion.Angle(cousinTransform.rotation, targetRot) > 1f)
-            {
-                cousinTransform.rotation = Quaternion.RotateTowards(cousinTransform.rotation, targetRot, 120f * Time.deltaTime);
-                yield return null;
-            }
-
-            UIManager.Instance?.GetComponentInChildren<TypewriterEffect>()?.ShowMessage("");
-            yield return new WaitForSeconds(1.5f);
-
-            player.enabled = true;
-            if (levitationFX) levitationFX.SetActive(false);
-            GameManager.Instance.ChangeState(GameState.Exploration);
-        }
-
-        public void PlayOutro()
-        {
-            StartCoroutine(OutroSequence());
-        }
-
-        private IEnumerator OutroSequence()
-        {
-            UIManager.Instance?.ShowMessage("You escaped! Parents arrive...");
-            yield return new WaitForSeconds(3f);
-
-            cousinTransform.position = new Vector3(cousinTransform.position.x, 0, cousinTransform.position.z);
-            cousinTransform.rotation = Quaternion.identity;
-            UIManager.Instance?.ShowMessage("Cousin: 'Welcome back!' (smiles)");
-            yield return new WaitForSeconds(2f);
-
-            AudioManager am = FindObjectOfType<AudioManager>();
-            if (am) am.PlayVictorySting();
-            UIManager.Instance.ShowVictory();
-        }
-
-        private IEnumerator MoveCamera(Transform from, Transform to, float duration)
-        {
-            float time = 0;
-            while (time < duration)
-            {
-                float t = panCurve.Evaluate(time / duration);
-                playerCamera.position = Vector3.Lerp(from.position, to.position, t);
-                playerCamera.rotation = Quaternion.Slerp(from.rotation, to.rotation, t);
-                time += Time.deltaTime;
-                yield return null;
-            }
-        }
-    }
-}
-'''
-
-# -----------------------------------------------------------------------------
-# 2. AI scripts
-# -----------------------------------------------------------------------------
-
-COUSIN_AI = r'''using UnityEngine;
-using UnityEngine.AI;
-
-namespace Game.AI
-{
-    public class CousinAI : MonoBehaviour
-    {
-        public AISettings settings;
-        public Transform player;
-        [HideInInspector] public Vector3 LastKnownPlayerPosition;
-        public bool CanSeePlayer { get; private set; }
-
-        private NavMeshAgent agent;
-        private CousinFSM fsm;
-        private Animator anim;
+        private float targetVignette = 0.25f;
+        private float targetChroma = 0.1f;
 
         private void Awake()
         {
-            agent = GetComponent<NavMeshAgent>();
-            fsm = new CousinFSM(this);
-            if (!player) player = GameObject.FindGameObjectWithTag("Player").transform;
-            anim = GetComponent<Animator>();
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            Instance = this;
+
+            if (globalVolume == null)
+            {
+                globalVolume = GetComponent<Volume>();
+            }
+
+            if (globalVolume != null && globalVolume.profile != null)
+            {
+                globalVolume.profile.TryGet(out vignette);
+                globalVolume.profile.TryGet(out chromaticAberration);
+                globalVolume.profile.TryGet(out filmGrain);
+            }
         }
 
         private void Update()
         {
-            CanSeePlayer = CheckLineOfSight();
-            fsm.Update();
-            UpdateAnimation();
-        }
-
-        private bool CheckLineOfSight()
-        {
-            if (!player) return false;
-            Vector3 dir = player.position - transform.position;
-            float dist = dir.magnitude;
-            if (dist > settings.viewDistance) return false;
-            if (Vector3.Angle(transform.forward, dir) > settings.viewConeAngle * 0.5f) return false;
-
-            if (Physics.Raycast(transform.position + Vector3.up, dir.normalized, out RaycastHit hit, dist))
-                return hit.collider.CompareTag("Player");
-            return false;
-        }
-
-        public void HearNoise(Vector3 position, float radius)
-        {
-            if (Vector3.Distance(transform.position, position) <= radius)
+            if (vignette != null)
             {
-                LastKnownPlayerPosition = position;
-                fsm.TransitionTo(CousinState.Investigate);
+                vignette.intensity.value = Mathf.Lerp(vignette.intensity.value, targetVignette, Time.deltaTime * 4f);
+            }
+
+            if (chromaticAberration != null)
+            {
+                chromaticAberration.intensity.value = Mathf.Lerp(chromaticAberration.intensity.value, targetChroma, Time.deltaTime * 4f);
             }
         }
 
-        public void SetDestination(Vector3 target) => agent.SetDestination(target);
-        public void Stop() => agent.ResetPath();
-        public bool ReachedDestination() => agent.remainingDistance <= agent.stoppingDistance;
-        public NavMeshAgent Agent => agent;
+        public void SetProximityEffect(float normalizedDanger)
+        {
+            normalizedDanger = Mathf.Clamp01(normalizedDanger);
+            targetVignette = Mathf.Lerp(0.25f, 0.65f, normalizedDanger);
+            targetChroma = Mathf.Lerp(0.05f, 0.85f, normalizedDanger);
+        }
 
-        private void UpdateAnimation() => anim?.SetFloat("Speed", agent.velocity.magnitude);
-
-        public void TransitionToState(CousinState newState) => fsm.TransitionTo(newState);
-        public CousinState CurrentState => fsm.CurrentState;
+        public void SetJumpscareIntensity()
+        {
+            targetVignette = 0.9f;
+            targetChroma = 1.0f;
+        }
     }
-
-    public enum CousinState { Patrol, Investigate, Chase, Attack, Stun }
 }
-'''
+"""
 
-COUSIN_FSM = r'''using System.Collections.Generic;
-using UnityEngine;
+# -----------------------------------------------------------------------------
+# 4. INTERACTION & INVENTORY
+# -----------------------------------------------------------------------------
+
+FILES["Assets/Scripts/Interaction/IInteractable.cs"] = """namespace Game.Interaction
+{
+    public interface IInteractable
+    {
+        string PromptText { get; }
+        bool CanInteract { get; }
+        void Interact();
+    }
+}
+"""
+
+FILES["Assets/Scripts/Interaction/InteractionManager.cs"] = """using UnityEngine;
+using UnityEngine.UI;
+using Game.Interaction;
 using Game.Core;
 
-namespace Game.AI
+namespace Game.Interaction
 {
-    public class CousinFSM
+    public class InteractionManager : MonoBehaviour
     {
-        private CousinAI ai;
-        private CousinState currentState;
-        private float stateTimer;
-        private List<Transform> patrolPoints;
-        private int patrolIndex;
+        [Header("Raycast Settings")]
+        [SerializeField] private Camera playerCamera;
+        [SerializeField] private float rayDistance = 3.0f;
+        [SerializeField] private LayerMask interactableLayer;
 
-        public CousinState CurrentState => currentState;
+        [Header("UI Prompts")]
+        [SerializeField] private Text promptText;
+        [SerializeField] private Image crosshairImage;
 
-        public CousinFSM(CousinAI ai)
+        private IInteractable currentInteractable;
+
+        private void Update()
         {
-            this.ai = ai;
-            currentState = CousinState.Patrol;
-            patrolPoints = new List<Transform>(GameObject.FindGameObjectsWithTag("PatrolPoint").Length);
-            foreach (var pt in GameObject.FindGameObjectsWithTag("PatrolPoint"))
-                patrolPoints.Add(pt.transform);
-        }
-
-        public void TransitionTo(CousinState newState)
-        {
-            if (currentState == newState) return;
-            ExitState(currentState);
-            currentState = newState;
-            stateTimer = 0;
-            EnterState(currentState);
-        }
-
-        public void Update()
-        {
-            stateTimer += Time.deltaTime;
-            switch (currentState)
+            if (GameManager.Instance != null && GameManager.Instance.CurrentState != GameState.Exploration && GameManager.Instance.CurrentState != GameState.Chase)
             {
-                case CousinState.Patrol: PatrolUpdate(); break;
-                case CousinState.Investigate: InvestigateUpdate(); break;
-                case CousinState.Chase: ChaseUpdate(); break;
-                case CousinState.Attack: AttackUpdate(); break;
-                case CousinState.Stun: StunUpdate(); break;
-            }
-        }
-
-        private void EnterState(CousinState state)
-        {
-            switch (state)
-            {
-                case CousinState.Patrol: ai.SetDestination(GetNextPatrolPoint()); break;
-                case CousinState.Investigate: ai.SetDestination(ai.LastKnownPlayerPosition); break;
-                case CousinState.Chase: ai.Agent.speed = ai.settings.chaseSpeed; break;
-                case CousinState.Attack: ai.Stop(); break;
-                case CousinState.Stun: ai.Agent.speed = 0; break;
-            }
-        }
-
-        private void ExitState(CousinState state)
-        {
-            if (state == CousinState.Chase || state == CousinState.Stun)
-                ai.Agent.speed = ai.settings.patrolSpeed;
-        }
-
-        private void PatrolUpdate()
-        {
-            if (ai.CanSeePlayer) TransitionTo(CousinState.Chase);
-            else if (ai.ReachedDestination()) ai.SetDestination(GetNextPatrolPoint());
-        }
-
-        private void InvestigateUpdate()
-        {
-            if (ai.CanSeePlayer) TransitionTo(CousinState.Chase);
-            else if (ai.ReachedDestination() && stateTimer > 5f) TransitionTo(CousinState.Patrol);
-        }
-
-        private void ChaseUpdate()
-        {
-            if (!ai.CanSeePlayer)
-            {
-                ai.LastKnownPlayerPosition = ai.player.position;
-                TransitionTo(CousinState.Investigate);
+                ClearInteractable();
                 return;
             }
-            ai.SetDestination(ai.player.position);
-            if (Vector3.Distance(ai.transform.position, ai.player.position) < 1.5f)
-                TransitionTo(CousinState.Attack);
+
+            PerformRaycast();
+
+            if (currentInteractable != null && (Input.GetKeyDown(KeyCode.E) || Input.GetMouseButtonDown(0)))
+            {
+                if (currentInteractable.CanInteract)
+                {
+                    currentInteractable.Interact();
+                }
+            }
         }
 
-        private void AttackUpdate() => GameManager.Instance.PlayerCaught();
-
-        private void StunUpdate() { if (stateTimer > 3f) TransitionTo(CousinState.Patrol); }
-
-        private Vector3 GetNextPatrolPoint()
+        private void PerformRaycast()
         {
-            if (patrolPoints.Count == 0) return ai.transform.position;
-            patrolIndex = (patrolIndex + 1) % patrolPoints.Count;
-            return patrolPoints[patrolIndex].position;
+            if (playerCamera == null) playerCamera = Camera.main;
+            if (playerCamera == null) return;
+
+            Ray ray = new Ray(playerCamera.transform.position, playerCamera.transform.forward);
+            if (Physics.Raycast(ray, out RaycastHit hit, rayDistance, interactableLayer))
+            {
+                IInteractable interactable = hit.collider.GetComponent<IInteractable>();
+                if (interactable == null) interactable = hit.collider.GetComponentInParent<IInteractable>();
+
+                if (interactable != null && interactable.CanInteract)
+                {
+                    currentInteractable = interactable;
+                    if (promptText != null)
+                    {
+                        promptText.gameObject.SetActive(true);
+                        promptText.text = interactable.PromptText;
+                    }
+                    if (crosshairImage != null) crosshairImage.color = Color.red;
+                    return;
+                }
+            }
+
+            ClearInteractable();
+        }
+
+        public void TriggerInteraction()
+        {
+            if (currentInteractable != null && currentInteractable.CanInteract)
+            {
+                currentInteractable.Interact();
+            }
+        }
+
+        private void ClearInteractable()
+        {
+            currentInteractable = null;
+            if (promptText != null) promptText.gameObject.SetActive(false);
+            if (crosshairImage != null) crosshairImage.color = Color.white;
         }
     }
 }
-'''
+"""
 
-AI_SETTINGS = r'''using UnityEngine;
+FILES["Assets/Scripts/Interaction/DoorController.cs"] = """using UnityEngine;
+using Game.Interaction;
+using Game.Core;
+using Game.Inventory;
 
-namespace Game.AI
+namespace Game.Interaction
 {
-    [CreateAssetMenu(fileName = "AISettings", menuName = "AI/Settings")]
-    public class AISettings : ScriptableObject
+    public class DoorController : MonoBehaviour, IInteractable
     {
-        public float patrolSpeed = 2f;
-        public float chaseSpeed = 5f;
-        public float viewDistance = 10f;
-        public float viewConeAngle = 60f;
-        public float hearingRadius = 15f;
-    }
-}
-'''
+        [Header("Door Settings")]
+        [SerializeField] private bool isLocked = false;
+        [SerializeField] private string requiredKeyID = "HouseKey";
+        [SerializeField] private float openAngle = 90f;
+        [SerializeField] private float speed = 3f;
 
-# -----------------------------------------------------------------------------
-# 3. UI scripts
-# -----------------------------------------------------------------------------
+        [Header("Messages")]
+        [SerializeField] private string openPrompt = "Open Door";
+        [SerializeField] private string closePrompt = "Close Door";
+        [SerializeField] private string lockedPrompt = "Door Locked (Key Needed)";
 
-UI_MANAGER = r'''using UnityEngine;
-using UnityEngine.UI;
+        private bool isOpen = false;
+        private Quaternion closedRotation;
+        private Quaternion targetRotation;
 
-namespace Game.UI
-{
-    public class UIManager : MonoBehaviour
-    {
-        public static UIManager Instance { get; private set; }
-        [SerializeField] private Text messageText;
-        [SerializeField] private GameObject gameOverPanel;
-        [SerializeField] private GameObject victoryPanel;
-        [SerializeField] private TypewriterEffect typewriter;
-        [SerializeField] private CrosshairController crosshair;
+        public string PromptText => isLocked ? lockedPrompt : (isOpen ? closePrompt : openPrompt);
+        public bool CanInteract => true;
 
         private void Awake()
         {
-            if (Instance) { Destroy(gameObject); return; }
+            closedRotation = transform.localRotation;
+            targetRotation = closedRotation;
+        }
+
+        private void Update()
+        {
+            transform.localRotation = Quaternion.Slerp(transform.localRotation, targetRotation, Time.deltaTime * speed);
+        }
+
+        public void Interact()
+        {
+            if (isLocked)
+            {
+                if (InventorySystem.Instance != null && InventorySystem.Instance.HasItem(requiredKeyID))
+                {
+                    isLocked = false;
+                    InventorySystem.Instance.RemoveItem(requiredKeyID);
+                    if (AudioManager.Instance != null) AudioManager.Instance.PlayDoorOpen();
+                    ToggleDoor();
+                }
+                else
+                {
+                    if (AudioManager.Instance != null) AudioManager.Instance.PlayDoorLocked();
+                }
+            }
+            else
+            {
+                if (AudioManager.Instance != null) AudioManager.Instance.PlayDoorOpen();
+                ToggleDoor();
+            }
+        }
+
+        private void ToggleDoor()
+        {
+            isOpen = !isOpen;
+            targetRotation = isOpen ? closedRotation * Quaternion.Euler(0, openAngle, 0) : closedRotation;
+        }
+    }
+}
+"""
+
+FILES["Assets/Scripts/Inventory/ItemData.cs"] = """using UnityEngine;
+
+namespace Game.Inventory
+{
+    public enum ItemType { Key, Lockpick, Fuse, WaterBottle }
+
+    [CreateAssetMenu(fileName = "NewItemData", menuName = "HorrorGame/ItemData")]
+    public class ItemData : ScriptableObject
+    {
+        public string itemID;
+        public string itemName;
+        public ItemType type;
+        public Sprite icon;
+    }
+}
+"""
+
+FILES["Assets/Scripts/Inventory/InventorySystem.cs"] = """using System.Collections.Generic;
+using UnityEngine;
+using Game.Core;
+
+namespace Game.Inventory
+{
+    public class InventorySystem : MonoBehaviour
+    {
+        public static InventorySystem Instance { get; private set; }
+
+        private HashSet<string> items = new HashSet<string>();
+
+        private void Awake()
+        {
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
             Instance = this;
         }
 
-        public void ShowMessage(string msg)
+        public bool AddItem(string itemID)
         {
-            if (typewriter) typewriter.ShowMessage(msg);
-            else if (messageText) messageText.text = msg;
+            if (string.IsNullOrEmpty(itemID) || items.Contains(itemID)) return false;
+            
+            items.Add(itemID);
+            Debug.Log($"[InventorySystem] Picked up item: {itemID}");
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayPickup();
+            return true;
         }
 
-        public void ShowGameOver()
-        {
-            gameOverPanel?.SetActive(true);
-            Time.timeScale = 0f;
-        }
+        public bool HasItem(string itemID) => items.Contains(itemID);
 
-        public void ShowVictory()
+        public bool RemoveItem(string itemID)
         {
-            victoryPanel?.SetActive(true);
-            Time.timeScale = 0f;
+            if (items.Contains(itemID))
+            {
+                items.Remove(itemID);
+                return true;
+            }
+            return false;
         }
-
-        public void UpdateCrosshair(bool canInteract) => crosshair?.SetState(canInteract);
     }
 }
-'''
+"""
 
-VIRTUAL_JOYSTICK = r'''using UnityEngine;
+# -----------------------------------------------------------------------------
+# 5. PLAYER CONTROLLER & JOYSTICK
+# -----------------------------------------------------------------------------
+
+FILES["Assets/Scripts/Player/VirtualJoystick.cs"] = """using UnityEngine;
 using UnityEngine.EventSystems;
-using UnityEngine.UI;
 
-namespace Game.UI
+namespace Game.Player
 {
-    public class VirtualJoystick : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IDragHandler
+    public class VirtualJoystick : MonoBehaviour, IDragHandler, IPointerDownHandler, IPointerUpHandler
     {
-        public RectTransform background;
-        public RectTransform handle;
-        [Range(0,1)] public float handleRange = 1f;
-        public float deadZone = 0.1f;
+        [SerializeField] private RectTransform containerRect;
+        [SerializeField] private RectTransform handleRect;
+        [SerializeField] private float handleRange = 100f;
 
-        public Vector2 Direction { get; private set; }
+        public Vector2 Direction { get; private set; } = Vector2.zero;
 
-        private void Start() => handle.anchoredPosition = Vector2.zero;
-
-        public void OnPointerDown(PointerEventData eventData) => OnDrag(eventData);
+        public void OnPointerDown(PointerEventData eventData)
+        {
+            OnDrag(eventData);
+        }
 
         public void OnDrag(PointerEventData eventData)
         {
-            Vector2 radius = background.sizeDelta / 2;
-            Vector2 pos = eventData.position - (Vector2)background.position;
-            Direction = pos / (radius * handleRange);
-            if (Direction.magnitude < deadZone) Direction = Vector2.zero;
-            else Direction = Direction.normalized * ((Direction.magnitude - deadZone) / (1 - deadZone));
-            handle.anchoredPosition = Direction * radius * handleRange;
+            if (containerRect == null || handleRect == null) return;
+
+            Vector2 position = RectTransformUtility.WorldToScreenPoint(null, containerRect.position);
+            Vector2 radius = containerRect.sizeDelta / 2f;
+            Direction = (eventData.position - position) / (radius * (handleRange / 100f));
+            
+            if (Direction.magnitude > 1.0f)
+            {
+                Direction = Direction.normalized;
+            }
+
+            handleRect.anchoredPosition = Direction * (radius * (handleRange / 100f));
         }
 
         public void OnPointerUp(PointerEventData eventData)
         {
             Direction = Vector2.zero;
-            handle.anchoredPosition = Vector2.zero;
+            if (handleRect != null) handleRect.anchoredPosition = Vector2.zero;
         }
     }
 }
-'''
+"""
 
-TYPEWRITER_EFFECT = r'''using System.Collections;
-using UnityEngine;
-using UnityEngine.UI;
+FILES["Assets/Scripts/Player/PlayerController.cs"] = """using UnityEngine;
+using Game.Core;
 
-namespace Game.UI
+namespace Game.Player
 {
-    public class TypewriterEffect : MonoBehaviour
+    public enum MovementNoiseState { Silent, Walking, Sprinting }
+
+    [RequireComponent(typeof(CharacterController))]
+    public class PlayerController : MonoBehaviour
     {
-        public Text displayText;
-        public float charsPerSecond = 20f;
-        public AudioClip typeSound;
-        private AudioSource audioSource;
-        private Coroutine typing;
+        [Header("Movement Options")]
+        [SerializeField] private float walkSpeed = 3.0f;
+        [SerializeField] private float sprintSpeed = 5.5f;
+        [SerializeField] private float crouchSpeed = 1.5f;
+        [SerializeField] private float gravity = -19.62f;
 
-        private void Awake() => audioSource = gameObject.AddComponent<AudioSource>();
+        [Header("Stamina Mechanics")]
+        [SerializeField] private float maxStamina = 100f;
+        [SerializeField] private float staminaDrainRate = 25f;
+        [SerializeField] private float staminaRegenRate = 15f;
+        private float currentStamina;
 
-        public void ShowMessage(string message)
+        [Header("Look Controls")]
+        [SerializeField] private Camera playerCamera;
+        [SerializeField] private float mouseSensitivity = 2.0f;
+        [SerializeField] private VirtualJoystick joystick;
+
+        [Header("Head Bobbing")]
+        [SerializeField] private float bobSpeed = 10f;
+        [SerializeField] private float bobAmount = 0.05f;
+
+        private CharacterController controller;
+        private Vector3 velocity;
+        private float xRotation = 0f;
+        private float defaultHeight;
+        private Vector3 defaultCamPos;
+        private float timer = 0f;
+
+        public MovementNoiseState CurrentNoise { get; private set; } = MovementNoiseState.Silent;
+
+        private void Awake()
         {
-            if (typing != null) StopCoroutine(typing);
-            typing = StartCoroutine(TypeText(message));
+            controller = GetComponent<CharacterController>();
+            defaultHeight = controller.height;
+            if (playerCamera == null) playerCamera = GetComponentInChildren<Camera>();
+            if (playerCamera != null) defaultCamPos = playerCamera.transform.localPosition;
+            currentStamina = maxStamina;
         }
 
-        private IEnumerator TypeText(string message)
+        private void Update()
         {
-            displayText.text = "";
-            foreach (char c in message)
+            if (GameManager.Instance != null && GameManager.Instance.CurrentState != GameState.Exploration && GameManager.Instance.CurrentState != GameState.Chase)
             {
-                displayText.text += c;
-                if (typeSound) audioSource.PlayOneShot(typeSound);
-                yield return new WaitForSeconds(1f / charsPerSecond);
+                return;
+            }
+
+            HandleLook();
+            HandleMovement();
+            HandleHeadBob();
+        }
+
+        private void HandleLook()
+        {
+#if UNITY_EDITOR || UNITY_STANDALONE
+            if (Input.GetMouseButton(1) || Cursor.lockState == CursorLockMode.Locked)
+            {
+                float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity;
+                float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity;
+
+                xRotation -= mouseY;
+                xRotation = Mathf.Clamp(xRotation, -80f, 80f);
+
+                if (playerCamera != null) playerCamera.transform.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
+                transform.Rotate(Vector3.up * mouseX);
+            }
+#endif
+        }
+
+        private void HandleMovement()
+        {
+            bool isGrounded = controller.isGrounded;
+            if (isGrounded && velocity.y < 0) velocity.y = -2f;
+
+            float moveX = joystick != null ? joystick.Direction.x : Input.GetAxis("Horizontal");
+            float moveZ = joystick != null ? joystick.Direction.y : Input.GetAxis("Vertical");
+
+            bool isCrouching = Input.GetKey(KeyCode.LeftControl);
+            bool isSprinting = Input.GetKey(KeyCode.LeftShift) && currentStamina > 0 && (moveX != 0 || moveZ != 0) && !isCrouching;
+
+            float currentSpeed = walkSpeed;
+
+            if (isCrouching)
+            {
+                currentSpeed = crouchSpeed;
+                controller.height = Mathf.Lerp(controller.height, defaultHeight * 0.5f, Time.deltaTime * 8f);
+                CurrentNoise = MovementNoiseState.Silent;
+            }
+            else
+            {
+                controller.height = Mathf.Lerp(controller.height, defaultHeight, Time.deltaTime * 8f);
+                if (isSprinting)
+                {
+                    currentSpeed = sprintSpeed;
+                    currentStamina -= staminaDrainRate * Time.deltaTime;
+                    CurrentNoise = MovementNoiseState.Sprinting;
+                }
+                else
+                {
+                    if (currentStamina < maxStamina) currentStamina += staminaRegenRate * Time.deltaTime;
+                    CurrentNoise = (moveX != 0 || moveZ != 0) ? MovementNoiseState.Walking : MovementNoiseState.Silent;
+                }
+            }
+
+            currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
+
+            Vector3 move = transform.right * moveX + transform.forward * moveZ;
+            controller.Move(move * currentSpeed * Time.deltaTime);
+
+            velocity.y += gravity * Time.deltaTime;
+            controller.Move(velocity * Time.deltaTime);
+        }
+
+        private void HandleHeadBob()
+        {
+            if (playerCamera == null) return;
+
+            if (Mathf.Abs(controller.velocity.x) > 0.1f || Mathf.Abs(controller.velocity.z) > 0.1f)
+            {
+                timer += Time.deltaTime * bobSpeed;
+                playerCamera.transform.localPosition = new Vector3(
+                    defaultCamPos.x + Mathf.Sin(timer) * bobAmount,
+                    defaultCamPos.y + Mathf.Sin(timer * 2) * bobAmount,
+                    defaultCamPos.z
+                );
+            }
+            else
+            {
+                timer = 0;
+                playerCamera.transform.localPosition = Vector3.Lerp(playerCamera.transform.localPosition, defaultCamPos, Time.deltaTime * 5f);
             }
         }
     }
 }
-'''
+"""
 
-CROSSHAIR_CONTROLLER = r'''using UnityEngine;
-using UnityEngine.UI;
+# -----------------------------------------------------------------------------
+# 6. MONSTER AI
+# -----------------------------------------------------------------------------
 
-namespace Game.UI
+FILES["Assets/Scripts/AI/CousinAI.cs"] = """using UnityEngine;
+using UnityEngine.AI;
+using Game.Core;
+using Game.Player;
+
+namespace Game.AI
 {
-    public class CrosshairController : MonoBehaviour
-    {
-        public Image crosshairImage;
-        public Color normalColor = Color.white;
-        public Color interactColor = Color.green;
+    public enum AIState { Patrol, Investigate, Chase, Stun, Attack }
 
-        public void SetState(bool canInteract)
+    [RequireComponent(typeof(NavMeshAgent))]
+    public class CousinAI : MonoBehaviour
+    {
+        [Header("Perception")]
+        [SerializeField] private float viewDistance = 12f;
+        [SerializeField] private float viewAngle = 60f;
+        [SerializeField] private LayerMask obstacleMask;
+
+        [Header("Speeds")]
+        [SerializeField] private float patrolSpeed = 2.0f;
+        [SerializeField] private float chaseSpeed = 4.5f;
+
+        [Header("Patrol Points")]
+        [SerializeField] private Transform[] patrolWaypoints;
+
+        private NavMeshAgent agent;
+        private Transform playerTransform;
+        private PlayerController playerController;
+        private AIState currentState = AIState.Patrol;
+        private int currentWaypointIndex = 0;
+        private Vector3 lastNoisePosition;
+
+        private void Awake()
         {
-            crosshairImage.color = canInteract ? interactColor : normalColor;
+            agent = GetComponent<NavMeshAgent>();
+            GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
+            if (playerObj != null)
+            {
+                playerTransform = playerObj.transform;
+                playerController = playerObj.GetComponent<PlayerController>();
+            }
+        }
+
+        private void Update()
+        {
+            if (GameManager.Instance != null && 
+               (GameManager.Instance.CurrentState == GameState.CinematicIntro || GameManager.Instance.CurrentState == GameState.CinematicOutro))
+            {
+                agent.isStopped = true;
+                return;
+            }
+
+            CheckSensoryInput();
+
+            switch (currentState)
+            {
+                case AIState.Patrol:
+                    UpdatePatrol();
+                    break;
+                case AIState.Investigate:
+                    UpdateInvestigate();
+                    break;
+                case AIState.Chase:
+                    UpdateChase();
+                    break;
+                case AIState.Stun:
+                    break;
+                case AIState.Attack:
+                    break;
+            }
+
+            if (playerTransform != null && AudioManager.Instance != null)
+            {
+                float dist = Vector3.Distance(transform.position, playerTransform.position);
+                AudioManager.Instance.UpdateHeartbeat(dist);
+                if (HorrorFXManager.Instance != null)
+                {
+                    HorrorFXManager.Instance.SetProximityEffect(1.0f - Mathf.Clamp01(dist / 15f));
+                }
+            }
+        }
+
+        private void CheckSensoryInput()
+        {
+            if (playerTransform == null) return;
+
+            float distToPlayer = Vector3.Distance(transform.position, playerTransform.position);
+
+            if (CanSeePlayer(distToPlayer))
+            {
+                SetState(AIState.Chase);
+                return;
+            }
+
+            if (playerController != null && currentState != AIState.Chase)
+            {
+                float hearingRadius = playerController.CurrentNoise switch
+                {
+                    MovementNoiseState.Sprinting => 16f,
+                    MovementNoiseState.Walking => 7f,
+                    _ => 0f
+                };
+
+                if (distToPlayer <= hearingRadius)
+                {
+                    lastNoisePosition = playerTransform.position;
+                    SetState(AIState.Investigate);
+                }
+            }
+        }
+
+        private bool CanSeePlayer(float distance)
+        {
+            if (distance > viewDistance) return false;
+
+            Vector3 dirToPlayer = (playerTransform.position - transform.position).normalized;
+            if (Vector3.Angle(transform.forward, dirToPlayer) < viewAngle / 2f)
+            {
+                if (!Physics.Raycast(transform.position + Vector3.up, dirToPlayer, distance, obstacleMask))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void SetState(AIState newState)
+        {
+            if (currentState == newState) return;
+            currentState = newState;
+
+            switch (newState)
+            {
+                case AIState.Patrol:
+                    agent.speed = patrolSpeed;
+                    agent.isStopped = false;
+                    if (GameManager.Instance.CurrentState == GameState.Chase)
+                        GameManager.Instance.SetState(GameState.Exploration);
+                    break;
+                case AIState.Investigate:
+                    agent.speed = patrolSpeed;
+                    agent.SetDestination(lastNoisePosition);
+                    agent.isStopped = false;
+                    break;
+                case AIState.Chase:
+                    agent.speed = chaseSpeed;
+                    agent.isStopped = false;
+                    GameManager.Instance.SetState(GameState.Chase);
+                    break;
+            }
+        }
+
+        private void UpdatePatrol()
+        {
+            if (patrolWaypoints == null || patrolWaypoints.Length == 0) return;
+
+            if (!agent.pathPending && agent.remainingDistance < 0.5f)
+            {
+                currentWaypointIndex = (currentWaypointIndex + 1) % patrolWaypoints.Length;
+                agent.SetDestination(patrolWaypoints[currentWaypointIndex].position);
+            }
+        }
+
+        private void UpdateInvestigate()
+        {
+            if (!agent.pathPending && agent.remainingDistance < 0.8f)
+            {
+                SetState(AIState.Patrol);
+            }
+        }
+
+        private void UpdateChase()
+        {
+            agent.SetDestination(playerTransform.position);
+            float dist = Vector3.Distance(transform.position, playerTransform.position);
+
+            if (dist < 1.3f)
+            {
+                ExecuteAttack();
+            }
+            else if (dist > viewDistance * 1.5f)
+            {
+                SetState(AIState.Patrol);
+            }
+        }
+
+        private void ExecuteAttack()
+        {
+            currentState = AIState.Attack;
+            agent.isStopped = true;
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayJumpscareSound();
+            if (HorrorFXManager.Instance != null) HorrorFXManager.Instance.SetJumpscareIntensity();
+            if (GameManager.Instance != null) GameManager.Instance.TriggerJumpscare();
+        }
+
+        public void Stun(float duration)
+        {
+            StartCoroutine(StunRoutine(duration));
+        }
+
+        private System.Collections.IEnumerator StunRoutine(float duration)
+        {
+            AIState previousState = currentState;
+            currentState = AIState.Stun;
+            agent.isStopped = true;
+            yield return new WaitForSeconds(duration);
+            agent.isStopped = false;
+            SetState(previousState);
         }
     }
 }
-'''
+"""
 
 # -----------------------------------------------------------------------------
-# 4. Editor scripts
+# 7. CINEMATICS & OUTRO
 # -----------------------------------------------------------------------------
 
-PROJECT_CONFIGURATOR = r'''#if UNITY_EDITOR
-using UnityEditor;
+FILES["Assets/Scripts/Core/IntroCinematicController.cs"] = """using System.Collections;
 using UnityEngine;
+using Game.Core;
 
-namespace Game.Editor
+namespace Game.Core
 {
-    [InitializeOnLoad]
-    public class ProjectConfigurator
+    public class IntroCinematicController : MonoBehaviour
     {
-        static ProjectConfigurator()
+        [Header("Cinematic Elements")]
+        [SerializeField] private Camera cinematicCamera;
+        [SerializeField] private Camera playerCamera;
+        [SerializeField] private Transform cousinTransform;
+        [SerializeField] private Transform levitationTarget;
+
+        [Header("Timings")]
+        [SerializeField] private float levitationSpeed = 1.0f;
+
+        private void Start()
         {
-            EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android);
-            PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
-            PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
-            PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel24;
-            PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevel33;
-
-            QualitySettings.vSyncCount = 0;
-            Application.targetFrameRate = 60;
-            QualitySettings.SetQualityLevel(1);
-
-            AddTag("Player"); AddTag("Monster"); AddTag("Interactable");
-            AddTag("Key"); AddTag("HideSpot"); AddTag("Wood");
-            AddTag("Tile"); AddTag("Carpet"); AddTag("PatrolPoint"); AddTag("Finish");
-
-            CreateLayer("Player", 8);
-            CreateLayer("Monster", 9);
-
-            Debug.Log("Project configured for 'The Cousin's Secret'");
+            if (GameManager.Instance != null)
+            {
+                StartCoroutine(RunIntroSequence());
+            }
         }
 
-        static void AddTag(string tag)
+        private IEnumerator RunIntroSequence()
         {
-            SerializedObject tagManager = new SerializedObject(AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset")[0]);
-            SerializedProperty tagsProp = tagManager.FindProperty("tags");
-            for (int i = 0; i < tagsProp.arraySize; i++)
-                if (tagsProp.GetArrayElementAtIndex(i).stringValue == tag) return;
-            tagsProp.InsertArrayElementAtIndex(tagsProp.arraySize);
-            tagsProp.GetArrayElementAtIndex(tagsProp.arraySize - 1).stringValue = tag;
-            tagManager.ApplyModifiedProperties();
+            GameManager.Instance.SetState(GameState.CinematicIntro);
+            if (cinematicCamera != null) cinematicCamera.gameObject.SetActive(true);
+            if (playerCamera != null) playerCamera.gameObject.SetActive(false);
+
+            yield return new WaitForSeconds(1.5f);
+
+            // Levitating cousin sequence
+            if (cousinTransform != null && levitationTarget != null)
+            {
+                Vector3 startPos = cousinTransform.position;
+                float t = 0;
+                while (t < 1.0f)
+                {
+                    t += Time.deltaTime * levitationSpeed;
+                    cousinTransform.position = Vector3.Lerp(startPos, levitationTarget.position, Mathf.SmoothStep(0, 1, t));
+                    yield return null;
+                }
+            }
+
+            yield return new WaitForSeconds(2.0f);
+
+            // Snap camera cut back to player
+            if (cinematicCamera != null) cinematicCamera.gameObject.SetActive(false);
+            if (playerCamera != null) playerCamera.gameObject.SetActive(true);
+
+            GameManager.Instance.SetState(GameState.Exploration);
         }
 
-        static void CreateLayer(string name, int index)
+        public void TriggerOutroSequence()
         {
-            SerializedObject tagManager = new SerializedObject(AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset")[0]);
-            SerializedProperty layersProp = tagManager.FindProperty("layers");
-            layersProp.GetArrayElementAtIndex(index).stringValue = name;
-            tagManager.ApplyModifiedProperties();
+            StartCoroutine(RunOutroSequence());
+        }
+
+        private IEnumerator RunOutroSequence()
+        {
+            GameManager.Instance.SetState(GameState.CinematicOutro);
+            Debug.Log("[Cinematic] Running Outro: Escaped house... parents arrive... checking inside...");
+            yield return new WaitForSeconds(3.0f);
+            GameManager.Instance.TriggerVictory();
         }
     }
 }
-#endif
-'''
+"""
 
-SCENE_SETUP_WIZARD = r'''#if UNITY_EDITOR
-using UnityEditor;
+# -----------------------------------------------------------------------------
+# 8. EDITOR SETUP WIZARD SCRIPT
+# -----------------------------------------------------------------------------
+
+FILES["Assets/Editor/SceneSetupWizard.cs"] = """using UnityEditor;
 using UnityEngine;
 using UnityEngine.AI;
-using UnityEngine.SceneManagement;
 using UnityEngine.Rendering;
-using UnityEngine.Rendering.Universal;
 using Game.Core;
+using Game.Player;
 using Game.AI;
-using Game.UI;
+using Game.Interaction;
+using Game.Inventory;
 
 namespace Game.Editor
 {
-    [InitializeOnLoad]
-    public class SceneSetupWizard
+    public class SceneSetupWizard : EditorWindow
     {
-        static SceneSetupWizard()
+        [MenuItem("Tools/Build Complete Horror Game Scene")]
+        public static void GenerateScene()
         {
-            EditorApplication.delayCall += SetupScene;
-        }
+            // 1. Create Core Manager Hierarchy
+            GameObject managersObj = new GameObject("[Managers]");
+            managersObj.AddComponent<GameManager>();
+            managersObj.AddComponent<AudioManager>();
+            managersObj.AddComponent<HorrorFXManager>();
+            managersObj.AddComponent<InventorySystem>();
 
-        static void SetupScene()
-        {
-            if (SceneManager.GetActiveScene().name != "MainScene") return;
-            if (GameObject.Find("GameManager")) return;
+            // 2. Setup Post Processing Volume
+            GameObject volumeObj = new GameObject("Global PostProcess Volume");
+            Volume vol = volumeObj.AddComponent<Volume>();
+            vol.isGlobal = true;
 
-            // ---- Global Managers ----
-            GameObject gm = new GameObject("GameManager");
-            gm.AddComponent<GameManager>();
-            GameObject audioGO = new GameObject("AudioManager");
-            audioGO.AddComponent<AudioManager>();
-            GameObject fxGO = new GameObject("HorrorFX");
-            fxGO.AddComponent<HorrorFXManager>();
-            GameObject uiGO = new GameObject("UIManager");
-            uiGO.AddComponent<UIManager>();
+            // 3. Environment Environment/House
+            GameObject houseFloor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            houseFloor.name = "HouseFloor";
+            houseFloor.transform.localScale = new Vector3(3, 1, 3);
+            houseFloor.layer = LayerMask.NameToLayer("Default");
 
-            // ---- House ----
-            CreateHouse();
+            // Static for NavMesh
+            GameObjectUtility.SetStaticEditorFlags(houseFloor, StaticEditorFlags.NavigationStatic);
 
-            // ---- Player ----
+            // 4. Setup Player
             GameObject player = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            player.name = "Player";
+            player.name = "PlayerCapsule";
             player.tag = "Player";
             player.layer = LayerMask.NameToLayer("Player");
-            player.transform.position = new Vector3(0, 1, 0);
-            CharacterController cc = player.AddComponent<CharacterController>();
-            cc.height = 2f; cc.center = new Vector3(0,1,0);
-            GameObject cam = new GameObject("MainCamera");
-            cam.AddComponent<Camera>();
-            cam.transform.SetParent(player.transform);
-            cam.transform.localPosition = new Vector3(0, 1.6f, 0);
-            cam.AddComponent<AudioListener>();
-            player.AddComponent<PlayerController>().useMobileInput = true;
-            player.AddComponent<FootstepHandler>();
+            player.transform.position = new Vector3(0, 1.1f, 0);
+
+            CharacterController controller = player.AddComponent<CharacterController>();
+            controller.center = new Vector3(0, 0, 0);
+            controller.height = 2.0f;
+
+            GameObject camObj = new GameObject("PlayerCamera");
+            camObj.transform.SetParent(player.transform);
+            camObj.transform.localPosition = new Vector3(0, 0.6f, 0);
+            Camera cam = camObj.AddComponent<Camera>();
+            camObj.AddComponent<AudioListener>();
+
+            player.AddComponent<PlayerController>();
             player.AddComponent<InteractionManager>();
-            player.AddComponent<MobileInput>();
 
-            // ---- UI Canvas ----
-            GameObject canvas = new GameObject("UICanvas");
-            Canvas c = canvas.AddComponent<Canvas>();
-            c.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.AddComponent<CanvasScaler>();
-            canvas.AddComponent<GraphicRaycaster>();
-            new GameObject("EventSystem").AddComponent<EventSystem>().gameObject.AddComponent<StandaloneInputModule>();
-
-            // ---- Cousin ----
+            // 5. Setup Monster (Cousin)
             GameObject monster = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            monster.name = "Cousin";
+            monster.name = "CousinMonster";
             monster.tag = "Monster";
             monster.layer = LayerMask.NameToLayer("Monster");
-            monster.transform.position = new Vector3(8, 1, 0);
+            monster.transform.position = new Vector3(8f, 1.1f, 8f);
+
+            Renderer ren = monster.GetComponent<Renderer>();
+            if (ren != null) ren.sharedMaterial.color = Color.red;
+
             monster.AddComponent<NavMeshAgent>();
             monster.AddComponent<CousinAI>();
-            monster.AddComponent<Animator>();
 
-            // ---- Patrol Points ----
-            for (int i = 0; i < 5; i++)
-            {
-                GameObject pt = new GameObject("PatrolPoint" + i);
-                pt.tag = "PatrolPoint";
-                pt.transform.position = new Vector3(Random.Range(2, 12), 0, Random.Range(2, 12));
-            }
+            // 6. Setup Door & Key
+            GameObject door = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            door.name = "MainExitDoor";
+            door.transform.position = new Vector3(0, 1.25f, 14.5f);
+            door.transform.localScale = new Vector3(2f, 2.5f, 0.2f);
+            door.layer = LayerMask.NameToLayer("Interactable");
+            door.AddComponent<DoorController>();
 
-            // ---- Items & Doors ----
-            CreateItemsAndDoors();
+            // Bake NavMesh automatically
+            UnityEditor.AI.NavMeshBuilder.BuildNavMesh();
 
-            // ---- NavMesh ----
-            NavMeshBuilder.BuildNavMesh();
-
-            // ---- URP Volume ----
-            GameObject vol = new GameObject("GlobalVolume");
-            Volume volume = vol.AddComponent<Volume>();
-            VolumeProfile profile = ScriptableObject.CreateInstance<VolumeProfile>();
-            volume.profile = profile;
-            profile.Add<Vignette>().intensity.Override(0.2f);
-            profile.Add<ChromaticAberration>().intensity.Override(0f);
-            profile.Add<FilmGrain>().intensity.Override(0f);
-
-            // ---- AI Settings ----
-            if (!AssetDatabase.LoadAssetAtPath<AISettings>("Assets/ScriptableObjects/AISettings.asset"))
-            {
-                AISettings ai = ScriptableObject.CreateInstance<AISettings>();
-                AssetDatabase.CreateAsset(ai, "Assets/ScriptableObjects/AISettings.asset");
-            }
-
-            Debug.Log("Scene setup complete.");
-        }
-
-        static void CreateHouse()
-        {
-            GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            floor.name = "Floor"; floor.tag = "Carpet";
-            floor.transform.position = Vector3.zero;
-            floor.transform.localScale = new Vector3(20, 0.1f, 20);
-        }
-
-        static void CreateItemsAndDoors()
-        {
-            GameObject redKey = new GameObject("RedKeyPickup"); redKey.tag = "Key";
-            redKey.transform.position = new Vector3(2, 0.5f, 2);
-            redKey.AddComponent<KeyPickup>().itemData = AssetDatabase.LoadAssetAtPath<ItemData>("Assets/Resources/Items/RedKey.asset");
-
-            GameObject storageDoor = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            storageDoor.name = "StorageDoor"; storageDoor.tag = "Interactable";
-            storageDoor.transform.position = new Vector3(5, 1, 5);
-            storageDoor.AddComponent<DoorController>().requiredKeyName = "RedKey";
+            Debug.Log("[SceneSetupWizard] Successfully built horror scene hierarchy, navigation mesh, and game systems!");
         }
     }
 }
-#endif
-'''
+"""
 
-PROJECT_SETTINGS_CORRECTOR = r'''#if UNITY_EDITOR
-using UnityEditor;
-using UnityEngine;
+def main():
+    print("--------------------------------------------------")
+    print("  Generating Horror Game Unity Project Codebase...")
+    print("--------------------------------------------------")
 
-namespace Game.Editor
-{
-    [InitializeOnLoad]
-    public class ProjectSettingsCorrector
-    {
-        static ProjectSettingsCorrector()
-        {
-            PlayerSettings.companyName = "DefaultCompany";
-            PlayerSettings.productName = "The Cousins Secret";
-            Debug.Log("Company and Product names set.");
-        }
-    }
-}
-#endif
-'''
+    for file_path, content in FILES.items():
+        dir_name = os.path.dirname(file_path)
+        if dir_name and not os.path.exists(dir_name):
+            os.makedirs(dir_name, exist_ok=True)
 
-# -----------------------------------------------------------------------------
-# 5. GitHub Actions CI workflow
-# -----------------------------------------------------------------------------
-
-CI_WORKFLOW = r'''name: Build Android APK
-
-on: [push, pull_request]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        unityVersion: [2022.3.40f1]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Cache Library folder
-        uses: actions/cache@v3
-        with:
-          path: ./Library
-          key: Library-${{ runner.os }}-${{ hashFiles('Assets/**', 'ProjectSettings/**', 'Packages/manifest.json') }}
-          restore-keys: |
-            Library-${{ runner.os }}-
-
-      - name: Setup Android SDK
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y openjdk-11-jdk
-          mkdir -p $HOME/android-sdk
-          export ANDROID_SDK_ROOT=$HOME/android-sdk
-          wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-          unzip commandlinetools-linux-9477386_latest.zip -d $ANDROID_SDK_ROOT/
-          yes | $ANDROID_SDK_ROOT/cmdline-tools/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT "platforms;android-33" "build-tools;33.0.2"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-
-      - name: Create PlayerPrefs directory
-        run: |
-          sudo mkdir -p /root/.config/unity3d/DefaultCompany
-          sudo chmod -R 777 /root/.config/unity3d
-          echo "PlayerPrefs directory prepared."
-
-      - name: Build APK
-        uses: game-ci/unity-builder@v3
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-        with:
-          targetPlatform: Android
-          unityVersion: ${{ matrix.unityVersion }}
-          projectPath: .
-          buildName: TheCousinsSecret
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v3
-        with:
-          name: APK
-          path: build/Android/TheCousinsSecret.apk
-'''
-
-# -----------------------------------------------------------------------------
-# 6. File map and generation
-# -----------------------------------------------------------------------------
-
-SCRIPTS = {
-    "Assets/Scripts/Core/PlayerController.cs": PLAYER_CONTROLLER,
-    "Assets/Scripts/Core/MobileInput.cs": MOBILE_INPUT,
-    "Assets/Scripts/Core/InteractionManager.cs": INTERACTION_MANAGER,
-    "Assets/Scripts/Core/IInteractable.cs": INTERACTABLE_INTERFACE,
-    "Assets/Scripts/Core/InventorySystem.cs": INVENTORY_SYSTEM,
-    "Assets/Scripts/Core/ItemData.cs": ITEM_DATA,
-    "Assets/Scripts/Core/DoorController.cs": DOOR_CONTROLLER,
-    "Assets/Scripts/Core/LockedContainer.cs": LOCKED_CONTAINER,
-    "Assets/Scripts/Core/Fusebox.cs": FUSEBOX,
-    "Assets/Scripts/Core/KeyPickup.cs": KEY_PICKUP,
-    "Assets/Scripts/Core/VasePickup.cs": VASE_PICKUP,
-    "Assets/Scripts/Core/ThrowableVase.cs": THROWABLE_VASE,
-    "Assets/Scripts/Core/FootstepHandler.cs": FOOTSTEP_HANDLER,
-    "Assets/Scripts/Core/GameManager.cs": GAME_MANAGER,
-    "Assets/Scripts/Core/ProgressionFlags.cs": PROGRESSION_FLAGS,
-    "Assets/Scripts/Core/AudioManager.cs": AUDIO_MANAGER,
-    "Assets/Scripts/Core/HorrorFXManager.cs": HORROR_FX_MANAGER,
-    "Assets/Scripts/Core/IntroCinematicController.cs": INTRO_CINEMATIC_CONTROLLER,
-    "Assets/Scripts/AI/CousinAI.cs": COUSIN_AI,
-    "Assets/Scripts/AI/CousinFSM.cs": COUSIN_FSM,
-    "Assets/Scripts/AI/AISettings.cs": AI_SETTINGS,
-    "Assets/Scripts/UI/UIManager.cs": UI_MANAGER,
-    "Assets/Scripts/UI/VirtualJoystick.cs": VIRTUAL_JOYSTICK,
-    "Assets/Scripts/UI/TypewriterEffect.cs": TYPEWRITER_EFFECT,
-    "Assets/Scripts/UI/CrosshairController.cs": CROSSHAIR_CONTROLLER,
-    "Assets/Scripts/Editor/ProjectConfigurator.cs": PROJECT_CONFIGURATOR,
-    "Assets/Scripts/Editor/SceneSetupWizard.cs": SCENE_SETUP_WIZARD,
-    "Assets/Scripts/Editor/ProjectSettingsCorrector.cs": PROJECT_SETTINGS_CORRECTOR,
-    ".github/workflows/build.yml": CI_WORKFLOW,
-}
-
-def create_project():
-    # Create directories
-    for folder in FOLDERS:
-        os.makedirs(os.path.join(PROJECT_ROOT, folder), exist_ok=True)
-
-    # Write assembly definitions
-    for path, data in ASMDEF_FILES.items():
-        with open(os.path.join(PROJECT_ROOT, path), 'w') as f:
-            json.dump(data, f, indent=2)
-
-    # Write all scripts and CI workflow
-    for path, content in SCRIPTS.items():
-        full = os.path.join(PROJECT_ROOT, path)
-        os.makedirs(os.path.dirname(full), exist_ok=True)
-        with open(full, 'w') as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             f.write(content.strip() + "\n")
 
-    # Empty scene placeholder
-    scene_path = os.path.join(PROJECT_ROOT, "Assets/Scenes/MainScene.unity")
-    if not os.path.exists(scene_path):
-        open(scene_path, 'w').close()
+        print(f"[CREATED] {file_path}")
 
-    # .gitignore
-    with open(os.path.join(PROJECT_ROOT, ".gitignore"), 'w') as f:
-        f.write("/[Ll]ibrary/\n/[Tt]emp/\n/[Oo]bj/\n/[Bb]uild/\n/[Bb]uilds/\n/[Ll]ogs/\n/[Uu]ser[Ss]ettings/\n")
-
-    print(f"Project '{PROJECT_ROOT}' generated successfully with CI pipeline.")
-    print("Push to GitHub and the APK will build automatically with zero errors.")
+    print("--------------------------------------------------")
+    print("Project Generation Complete!")
+    print("You can now open this folder in Unity or zip it for your GitHub Actions build pipeline.")
 
 if __name__ == "__main__":
-    create_project()
+    main()
