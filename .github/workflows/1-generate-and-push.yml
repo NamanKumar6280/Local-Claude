@@ -37,7 +37,7 @@ jobs:
           
           echo "Pushing and triggering Kaggle notebook..."
           # Ensure kernel-metadata.json is properly configured inside kaggle_notebook folder
-          kaggle kernels push -p kaggle_notebook
+          kaggle kernels push 
           
           echo "Kaggle notebook triggered successfully. Waiting 7-9 minutes for startup..."
           # Sleep for 8 minutes (480 seconds) to let model load and ngrok establish
