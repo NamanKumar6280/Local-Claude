@@ -28,16 +28,15 @@ jobs:
       - name: Install kaggle CLI
         run: pip install --upgrade kaggle
 
-      - name: Configure kaggle credentials
-        run: |
-          mkdir -p ~/.kaggle
-          echo '{"username":"'${{secrets.KAGGLE_USERNAME}}'","key":"'${{secrets.KAGGLE_KEY}}'"}' > ~/.kaggle/kaggle.json
-          chmod 600 ~/.kaggle/kaggle.json
-
       - name: Auto-start Kaggle Notebook
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
         run: |
+          pip install --upgrade kaggle
+          
           echo "Pushing and triggering Kaggle notebook..."
-          kaggle kernels push
+          kaggle kernels push -p kaggle_notebook
           
           echo "Kaggle notebook triggered successfully. Waiting 7-9 minutes for startup..."
           sleep 480
