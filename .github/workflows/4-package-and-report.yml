@@ -1,0 +1,106 @@
+name: 4. Package Project and Error Report
+on:
+  workflow_run:
+    workflows: [ "3. Compile Only" ]
+    types: [ completed ]
+
+permissions:
+  actions: read       # needed to download the triggering run's logs via the API
+  contents: read
+
+jobs:
+  package-and-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (same commit the compile run actually used)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          lfs: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Fetch the compile run's logs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          # Targets the EXACT run that triggered this workflow -- more precise than "whatever
+          # the previous run in the list happens to be" (which breaks if another workflow runs
+          # in between). Same underlying API call as 1.yml, just pointed at a known run id
+          # instead of guessing which run was "previous".
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          python - <<'EOF'
+          import os, requests, zipfile, io
+
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["REPO"]
+          run_id = os.environ["RUN_ID"]
+
+          headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+          logs_url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/logs"
+          resp = requests.get(logs_url, headers=headers, allow_redirects=True)
+
+          if resp.status_code != 200:
+              print(f"Failed to fetch logs: {resp.status_code} -- {resp.text[:300]}")
+              raise SystemExit(1)
+
+          os.makedirs("extracted_logs", exist_ok=True)
+          with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
+              z.extractall("extracted_logs")
+          print("Logs downloaded and extracted to ./extracted_logs")
+          EOF
+
+      - name: Convert logs to CompilerErrors.json
+        run: |
+          mkdir -p BuildReports
+          python tools/log_to_json.py extracted_logs --out-dir BuildReports --out-name CompilerErrors.json
+          cat BuildReports/CompilerErrors.json
+
+      - name: Package UnityProject.zip
+        run: |
+          mkdir -p BuildReports
+          # WHITELIST, not blacklist -- only the actual Unity project folders go in. This is
+          # the direct fix for a real bug: the old blacklist approach picked up .github/,
+          # tools/, and stray project zips sitting in the repo, producing a zip with no usable
+          # Assets/ProjectSettings content in it, because the actual project was never at
+          # repo root to begin with. Assets/Packages/ProjectSettings at repo root -- directly,
+          # not nested in a subfolder -- is the required convention going forward.
+          ZIP_TARGETS=""
+          for d in Assets Packages ProjectSettings; do
+            if [ -d "$d" ]; then
+              ZIP_TARGETS="$ZIP_TARGETS $d"
+            else
+              echo "WARNING: $d/ not found at repo root -- skipping (this means the project"
+              echo "isn't laid out at repo root as expected; the packaged zip will be incomplete)."
+            fi
+          done
+          if [ -z "$ZIP_TARGETS" ]; then
+            echo "ERROR: none of Assets/Packages/ProjectSettings exist at repo root. Nothing to package."
+            exit 1
+          fi
+          zip -r BuildReports/UnityProject.zip $ZIP_TARGETS -x "*/Library/*" "*/Temp/*" "*/obj/*"
+          echo "Packaged contents:"
+          unzip -l BuildReports/UnityProject.zip | head -20
+
+      - name: Upload project + error report as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-and-errors-${{ github.event.workflow_run.run_number }}
+          path: |
+            BuildReports/UnityProject.zip
+            BuildReports/CompilerErrors.json
+
+      - name: Print summary
+        run: |
+          echo "Compile run conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo "Error count: $(jq '.errorCount' BuildReports/CompilerErrors.json)"
+          echo "Warning count: $(jq '.warningCount' BuildReports/CompilerErrors.json)"
