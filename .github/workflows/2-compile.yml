@@ -1,4 +1,4 @@
-name: 3. Compile Only
+name: 2. Compile Only
 on:
   workflow_dispatch:
   push:
@@ -24,6 +24,7 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
           targetPlatform: StandaloneLinux64
+          projectPath: HorrorGame_Unity
           customParameters: -logFile /github/workspace/Logs/compile.log
         # Deliberately NOT continue-on-error -- if compile fails, we WANT this run to show as
         # failed, since workflow 4 (triggered on completion, any conclusion) reads the outcome
