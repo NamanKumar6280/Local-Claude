@@ -1,15 +1,15 @@
 name: 1. Generate Project From Docs
-
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
     paths:
-      - '*Shelf*.zip'   # fires whenever you replace or add a file matching *Shelf*.zip
+      - '**Shelf**.zip'   # fires when a doc zip whose name contains "Shelf" changes --
+      # this MUST match the same pattern the "Find the spec docs zip" step below searches for,
+      # or a push can update the file without ever triggering this workflow
 
 permissions:
   contents: write
-  actions: read
 
 jobs:
   generate-and-push:
@@ -18,28 +18,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # PAT, not the default GITHUB_TOKEN -- required so the commit this job makes later
+          # actually triggers "2. Compile, Repair, Verify, and Learn" via its own push trigger.
+          # Pushes made with the default token don't trigger other workflows (GitHub's built-in
+          # anti-loop protection).
           token: ${{ secrets.REPO_PAT }}
 
-      - name: Wait for Kaggle server to become reachable
+      - name: Wait for the Kaggle server to be reachable
         env:
           NGROK_URL: ${{ secrets.NGROK_URL }}
         run: |
-          echo "Polling ${NGROK_URL}/health every 10s until server is online (timeout after 500s)..."
-          ONLINE=false
-          for i in $(seq 1 50); do
+          # The Kaggle notebook may still be starting up (model load alone takes a couple
+          # minutes) when this workflow fires -- wait up to 4 minutes on the unauthenticated
+          # /health endpoint before giving up, instead of failing on the very first attempt.
+          for i in $(seq 1 48); do
             if curl -sf "${NGROK_URL}/health" > /dev/null; then
-              echo "Server is online and reachable!"
-              ONLINE=true
-              break
+              echo "Server is reachable."
+              exit 0
             fi
-            echo "[Attempt $i/50] Server not ready yet, retrying in 10s..."
-            sleep 10
+            echo "[wait $i/48] Server not reachable yet, retrying in 5s..."
+            sleep 5
           done
-          
-          if [ "$ONLINE" = false ]; then
-            echo "ERROR: Server failed to start or become reachable within 500 seconds."
-            exit 1
-          fi
+          echo "Server never became reachable after 4 minutes -- is the notebook running?"
+          exit 1
 
       - name: Find the spec docs zip (any filename containing "Shelf")
         id: findzip
@@ -49,6 +50,8 @@ jobs:
           MATCH=$(find . -maxdepth 1 -iname "*Shelf*.zip" | head -n 1)
           if [ -z "$MATCH" ]; then
             echo "ERROR: no *Shelf*.zip file found at repo root -- see listing above."
+            echo "Check: is it at the repo root, not in a subfolder? Was it committed to the"
+            echo "'main' branch specifically? Does its name actually contain 'Shelf'?"
             exit 1
           fi
           MATCH="${MATCH#./}"
@@ -62,27 +65,13 @@ jobs:
           API_KEY: ${{ secrets.API_KEY }}
           ZIP_PATH: ${{ steps.findzip.outputs.zip_path }}
         run: |
-          echo "Sending POST request to ${NGROK_URL}/generate with file ${ZIP_PATH}"
-          RESPONSE=$(curl -s -i -L -X POST "${NGROK_URL}/generate" \
+          RESPONSE=$(curl -s -X POST "${NGROK_URL}/generate" \
             -H "Authorization: Bearer ${API_KEY}" \
             -F "docs=@${ZIP_PATH}")
-          
-          echo "--- FULL CURL RESPONSE ---"
           echo "$RESPONSE"
-          echo "--------------------------"
-          
-          HTTP_STATUS=$(echo "$RESPONSE" | grep -o 'HTTP/[0-9.]* [0-9]*' | tail -n1 | awk '{print $2}')
-          echo "Final HTTP Status Code: $HTTP_STATUS"
-          
-          if [ "$HTTP_STATUS" != "200" ]; then
-            echo "ERROR: Server returned HTTP status $HTTP_STATUS."
-            exit 1
-          fi
-          
-          BODY=$(echo "$RESPONSE" | awk 'BEGIN {RS="\r\n\r\n|\n\n"} END {print}')
-          JOB_ID=$(echo "$BODY" | jq -r '.job_id // empty')
-          if [ -z "$JOB_ID" ] || [ "$JOB_ID" == "null" ]; then
-            echo "Failed to start a generation job -- response body did not contain a job_id."
+          JOB_ID=$(echo "$RESPONSE" | jq -r '.job_id')
+          if [ "$JOB_ID" == "null" ] || [ -z "$JOB_ID" ]; then
+            echo "Failed to start a generation job -- response above."
             exit 1
           fi
           echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
@@ -118,6 +107,8 @@ jobs:
             --output generated_project.zip
           mkdir -p _generated_tmp
           unzip -o generated_project.zip -d _generated_tmp
+          # mkdir -p means these folders don't need to already exist in the repo -- first run
+          # creates them automatically, nothing to set up by hand beforehand.
           for d in Assets Packages ProjectSettings; do
             if [ -d "_generated_tmp/$d" ]; then
               mkdir -p "$d"
@@ -132,71 +123,8 @@ jobs:
           git config user.email "generator-bot@users.noreply.github.com"
           git add Assets Packages ProjectSettings
           if ! git diff --cached --quiet; then
-            git commit -m "Generate project from spec docs (run ${{ github.run_number }})"
+            git commit -m "Generate project from spec_docs.zip (run ${{ github.run_number }})"
             git push
           else
             echo "Nothing changed -- generation produced an identical project."
           fi
-
-      - name: Set up Python for Log Processing
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install Log Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
-
-      - name: Fetch Previous Run Logs & Convert
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          python - <<'EOF'
-          import os
-          import requests
-          import zipfile
-          io = __import__('io')
-
-          token = os.environ["GITHUB_TOKEN"]
-          repo = os.environ["REPO"]
-          
-          headers = {
-              "Authorization": f"Bearer {token}",
-              "Accept": "application/vnd.github+json"
-          }
-
-          runs_url = f"https://api.github.com/repos/{repo}/actions/runs?per_page=2"
-          response = requests.get(runs_url, headers=headers)
-          response.raise_for_status()
-          runs = response.json().get("workflow_runs", [])
-
-          if len(runs) < 2:
-              print("No previous workflow run found.")
-              exit(0)
-
-          prev_run_id = runs[1]["id"]
-          print(f"Targeting previous run ID: {prev_run_id}")
-
-          logs_url = f"https://api.github.com/repos/{repo}/actions/runs/{prev_run_id}/logs"
-          logs_response = requests.get(logs_url, headers=headers, allow_redirects=True)
-          
-          if logs_response.status_code != 200:
-              print(f"Failed to fetch logs: {logs_response.status_code}")
-              exit(1)
-
-          os.makedirs("extracted_logs", exist_ok=True)
-          with zipfile.ZipFile(io.BytesIO(logs_response.content)) as z:
-              z.extractall("extracted_logs")
-          EOF
-
-      - name: Run log_to_json.py Script
-        run: |
-          python tools/log_to_json.py extracted_logs --out-dir . --out-name output.json
-
-      - name: Upload JSON Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: converted-workflow-logs-json
-          path: output.json
