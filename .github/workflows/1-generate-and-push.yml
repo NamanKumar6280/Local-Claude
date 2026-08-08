@@ -31,7 +31,7 @@ jobs:
           # The Kaggle notebook may still be starting up (model load alone takes a couple
           # minutes) when this workflow fires -- wait up to 4 minutes on the unauthenticated
           # /health endpoint before giving up, instead of failing on the very first attempt.
-          for i in $(seq 1 96); do
+          for i in $(seq 1 144); do
             if curl -sf "${NGROK_URL}/health" > /dev/null; then
               echo "Server is reachable."
               exit 0
