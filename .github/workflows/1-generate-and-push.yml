@@ -31,7 +31,8 @@ jobs:
           pip install kaggle
           pip install --upgrade kaggle   
           kaggle --version
-          pip install --upgrade --no-cache-dir kaggle   
+          pip install --upgrade --no-cache-dir kaggle 
+          pip install --upgrade --force-reinstall --no-cache-dir kaggle   
           kaggle --version
 
       - name: Push Worker Notebook to Kaggle
