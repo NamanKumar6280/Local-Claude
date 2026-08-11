@@ -4,9 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - '**Shelf**.zip'   # fires when a doc zip whose name contains "Shelf" changes --
-      # this MUST match the same pattern the "Find the spec docs zip" step below searches for,
-      # or a push can update the file without ever triggering this workflow
+      - '**Shelf**.zip'   # fires when a doc zip whose name contains "Shelf" changes
 
 permissions:
   contents: write
@@ -20,17 +18,35 @@ jobs:
         with:
           # PAT, not the default GITHUB_TOKEN -- required so the commit this job makes later
           # actually triggers "2. Compile, Repair, Verify, and Learn" via its own push trigger.
-          # Pushes made with the default token don't trigger other workflows (GitHub's built-in
-          # anti-loop protection).
           token: ${{ secrets.REPO_PAT }}
+
+      - name: Setup Python & Install Kaggle CLI
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install kaggle
+
+      - name: Push Worker Notebook to Kaggle
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          mkdir -p ~/.kaggle
+          echo "{\"username\":\"$KAGGLE_USERNAME\",\"key\":\"$KAGGLE_KEY\"}" > ~/.kaggle/kaggle.json
+          chmod 600 ~/.kaggle/kaggle.json
+          
+          echo "Pushing notebook to Kaggle..."
+          kaggle kernels push -p .
 
       - name: Wait for the Kaggle server to be reachable
         env:
           NGROK_URL: ${{ secrets.NGROK_URL }}
         run: |
-          # The Kaggle notebook may still be starting up (model load alone takes a couple
-          # minutes) when this workflow fires -- wait up to 4 minutes on the unauthenticated
-          # /health endpoint before giving up, instead of failing on the very first attempt.
+          # Wait up to 4 minutes on the unauthenticated /health endpoint
           for i in $(seq 1 144); do
             if curl -sf "${NGROK_URL}/health" > /dev/null; then
               echo "Server is reachable."
@@ -50,8 +66,6 @@ jobs:
           MATCH=$(find . -maxdepth 1 -iname "*Shelf*.zip" | head -n 1)
           if [ -z "$MATCH" ]; then
             echo "ERROR: no *Shelf*.zip file found at repo root -- see listing above."
-            echo "Check: is it at the repo root, not in a subfolder? Was it committed to the"
-            echo "'main' branch specifically? Does its name actually contain 'Shelf'?"
             exit 1
           fi
           MATCH="${MATCH#./}"
@@ -107,8 +121,6 @@ jobs:
             --output generated_project.zip
           mkdir -p _generated_tmp
           unzip -o generated_project.zip -d _generated_tmp
-          # mkdir -p means these folders don't need to already exist in the repo -- first run
-          # creates them automatically, nothing to set up by hand beforehand.
           for d in Assets Packages ProjectSettings; do
             if [ -d "_generated_tmp/$d" ]; then
               mkdir -p "$d"
