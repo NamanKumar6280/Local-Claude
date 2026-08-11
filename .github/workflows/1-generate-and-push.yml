@@ -40,7 +40,7 @@ jobs:
           chmod 600 ~/.kaggle/kaggle.json
           
           echo "Pushing notebook to Kaggle..."
-          kaggle kernels push -p kaggle_notebook/
+          kaggle kernels push -p kaggle_notebook/ --accelerator NvidiaTeslaT4
 
       - name: Wait for the Kaggle server to be reachable
         env:
