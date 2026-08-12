@@ -1,0 +1,3 @@
+# Ephemeral secrets-bridge dataset staging dir -- built fresh by the CI workflow each run,
+# never committed. Contains real secret VALUES in plaintext during the workflow run only.
+secrets_bridge/

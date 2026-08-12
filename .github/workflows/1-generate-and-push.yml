@@ -34,7 +34,7 @@ jobs:
           pip install --force-reinstall --no-cache-dir "kaggle>=1.8.4"     
           kaggle --version
 
-      - name: Push Worker Notebook to Kaggle
+      - name: Configure Kaggle credentials
         env:
           KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
@@ -42,7 +42,90 @@ jobs:
           mkdir -p ~/.kaggle
           echo "{\"username\":\"$KAGGLE_USERNAME\",\"key\":\"$KAGGLE_KEY\"}" > ~/.kaggle/kaggle.json
           chmod 600 ~/.kaggle/kaggle.json
-          
+
+      # CHANGED: Kaggle has no API to grant a kernel access to Kaggle Secrets programmatically --
+      # that's a manual, per-kernel toggle in the Kaggle UI (Add-ons -> Secrets). That's exactly
+      # why the automated "Save & Run All" push was failing with "NGROK_AUTH_TOKEN not found in
+      # Kaggle Secrets" -- this workflow creates a brand-new kernel push every run, and Kaggle
+      # Secrets access was never (and can't be) granted to it automatically.
+      #
+      # Kaggle DOES have an API for datasets, though, and datasets attach to a kernel
+      # automatically via dataset_sources in kernel-metadata.json -- so the fix is to smuggle the
+      # secrets in as a small private dataset instead. This directory is generated fresh on every
+      # run and is NEVER committed to git (see .gitignore) -- only the resulting private Kaggle
+      # dataset (visible solely to your own Kaggle account) holds the actual values.
+      - name: Build the Kaggle secrets-bridge dataset
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+          API_KEY: ${{ secrets.API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          mkdir -p secrets_bridge
+          python3 - <<'PYEOF'
+          import json, os
+          secrets = {
+              "NGROK_AUTH_TOKEN": os.environ.get("NGROK_AUTH_TOKEN", ""),
+              "API_KEY": os.environ.get("API_KEY", ""),
+              # Optional -- silences "unauthenticated requests to the HF Hub" warnings and raises
+              # rate limits. Leave the HF_TOKEN repo secret unset and this is just an empty string.
+              "HF_TOKEN": os.environ.get("HF_TOKEN", ""),
+          }
+          missing = [k for k, v in secrets.items() if not v and k != "HF_TOKEN"]
+          if missing:
+              raise SystemExit(
+                  f"Missing required GitHub secret(s): {missing}. Add them under "
+                  f"repo Settings -> Secrets and variables -> Actions."
+              )
+          with open("secrets_bridge/secrets.json", "w") as f:
+              json.dump(secrets, f)
+          with open("secrets_bridge/dataset-metadata.json", "w") as f:
+              json.dump({
+                  "title": "Kaggle Secrets Bridge",
+                  "id": f"{os.environ['KAGGLE_USERNAME']}/kaggle-secrets-bridge",
+                  "licenses": [{"name": "unknown"}],
+              }, f)
+          PYEOF
+
+          echo "Pushing secrets_bridge dataset to Kaggle (private, visible only to this account)..."
+          if kaggle datasets version -p secrets_bridge -m "Update from run ${{ github.run_number }}" -q; then
+            echo "Updated the existing secrets-bridge dataset."
+          else
+            echo "No existing secrets-bridge dataset -- creating it for the first time."
+            kaggle datasets create -p secrets_bridge -q
+          fi
+          # Kaggle needs a few seconds to finish processing a just-created/updated dataset before
+          # it's attachable to a kernel push -- a short wait here avoids a race against that.
+          sleep 15
+
+      # CHANGED: dataset_sources was empty, which is why "No adapter_config.json found anywhere
+      # under /kaggle/input" happened -- nothing was ever telling Kaggle to attach the LoRA
+      # adapter dataset to this kernel. Both the adapter and the new secrets-bridge dataset are
+      # added here (kernel-metadata.json in the repo keeps dataset_sources: [] as a clean
+      # baseline; this step fills it in at push time).
+      - name: Attach datasets to the kernel
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+          path = "kaggle_notebook/kernel-metadata.json"
+          with open(path) as f:
+              meta = json.load(f)
+          wanted = [
+              f"{os.environ['KAGGLE_USERNAME']}/kaggle-secrets-bridge",
+              "techsir/qwen25-coder-14b-unity-lora-adapter",  # the Unity-tuned LoRA adapter
+          ]
+          existing = set(meta.get("dataset_sources", []))
+          existing.update(wanted)
+          meta["dataset_sources"] = sorted(existing)
+          with open(path, "w") as f:
+              json.dump(meta, f, indent=2)
+          print("dataset_sources now:", meta["dataset_sources"])
+          PYEOF
+
+      - name: Push Worker Notebook to Kaggle
+        run: |
           echo "Pushing notebook to Kaggle..."
           kaggle kernels push -p kaggle_notebook/ --accelerator NvidiaTeslaT4
 
