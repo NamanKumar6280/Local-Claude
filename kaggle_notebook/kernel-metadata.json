@@ -9,7 +9,7 @@
   "accelerator": "t4x2",
   "gpu":"t4x2",
   "enable_internet": true,
-  "dataset_sources": [],
+  "dataset_sources": ["techsir/qwen25-coder-14b-unity-lora-adapter"],
   "competition_sources": [],
   "kernel_sources": []
 }
