@@ -134,13 +134,13 @@ jobs:
           NGROK_URL: ${{ secrets.NGROK_URL }}
         run: |
           # Wait up to 4 minutes on the unauthenticated /health endpoint
-          for i in $(seq 1 1440); do
+          for i in $(seq 1 144); do
             if curl -sf "${NGROK_URL}/health" > /dev/null; then
               echo "Server is reachable."
               exit 0
             fi
-            echo "[wait $i/1440] Server not reachable yet, retrying in 2s..."
-            sleep 2
+            echo "[wait $i/48] Server not reachable yet, retrying in 5s..."
+            sleep 5
           done
           echo "Server never became reachable after 4 minutes -- is the notebook running?"
           exit 1
