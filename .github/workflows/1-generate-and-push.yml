@@ -134,7 +134,7 @@ jobs:
           NGROK_URL: ${{ secrets.NGROK_URL }}
         run: |
           # Wait up to 4 minutes on the unauthenticated /health endpoint
-          for i in $(seq 1 244); do
+          for i in $(seq 1 144); do
             if curl -sf "${NGROK_URL}/health" > /dev/null; then
               echo "Server is reachable."
               exit 0
